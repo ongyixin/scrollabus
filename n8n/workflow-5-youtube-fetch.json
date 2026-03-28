@@ -1,0 +1,164 @@
+{
+  "name": "Scrollabus: YouTube Content Fetch",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every 6 hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/curated_channels",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "platform", "value": "eq.youtube" },
+            { "name": "is_active", "value": "eq.true" },
+            { "name": "select", "value": "channel_id,channel_name,tags" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "fetch-channels",
+      "name": "Fetch curated YouTube channels",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 300],
+      "typeVersion": 4.2,
+      "notes": "Reads active YouTube channels from the curated_channels table. The HTTP Request node (v4.2) automatically outputs each array element as a separate item, so no SplitOut node is needed."
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/youtube/v3/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "part", "value": "snippet" },
+            { "name": "channelId", "value": "={{ $json.channel_id }}" },
+            { "name": "type", "value": "video" },
+            { "name": "order", "value": "date" },
+            { "name": "maxResults", "value": "10" },
+            { "name": "key", "value": "={{ $vars.YOUTUBE_API_KEY }}" }
+          ]
+        }
+      },
+      "id": "yt-channel-search",
+      "name": "YouTube: latest videos from channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [700, 180],
+      "typeVersion": 4.2,
+      "notes": "Fetches the 10 most recent videos for each curated channel via YouTube Data API v3."
+    },
+    {
+      "parameters": {
+        "jsCode": "const channelData = $input.first().json;\nconst items = channelData.items ?? [];\nconst channelTags = $('Fetch curated YouTube channels').item.json.tags ?? [];\n\nreturn items.map(item => ({\n  json: {\n    platform: 'youtube',\n    external_id: item.id?.videoId ?? '',\n    title: item.snippet?.title ?? null,\n    description: item.snippet?.description?.slice(0, 500) ?? null,\n    thumbnail_url: item.snippet?.thumbnails?.high?.url ?? item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? null,\n    embed_url: `https://www.youtube.com/watch?v=${item.id?.videoId}`,\n    author_name: item.snippet?.channelTitle ?? null,\n    author_avatar_url: null,\n    view_count: 0,\n    like_count: 0,\n    tags: channelTags,\n    duration_seconds: null,\n    published_at: item.snippet?.publishedAt ?? null,\n  }\n})).filter(r => r.json.external_id);"
+      },
+      "id": "map-channel-videos",
+      "name": "Map channel videos to external_content rows",
+      "type": "n8n-nodes-base.code",
+      "position": [920, 180],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/youtube/v3/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "part", "value": "snippet" },
+            { "name": "q", "value": "study tutorial learn explained" },
+            { "name": "type", "value": "video" },
+            { "name": "order", "value": "relevance" },
+            { "name": "videoDuration", "value": "medium" },
+            { "name": "maxResults", "value": "20" },
+            { "name": "key", "value": "={{ $vars.YOUTUBE_API_KEY }}" }
+          ]
+        }
+      },
+      "id": "yt-topic-search",
+      "name": "YouTube: topic-based search",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [700, 420],
+      "typeVersion": 4.2,
+      "notes": "Topic-based search for general educational content. Runs in parallel with channel fetching. Adjust the 'q' query param to match your target audience."
+    },
+    {
+      "parameters": {
+        "jsCode": "const searchData = $input.first().json;\nconst items = searchData.items ?? [];\n\nreturn items.map(item => ({\n  json: {\n    platform: 'youtube',\n    external_id: item.id?.videoId ?? '',\n    title: item.snippet?.title ?? null,\n    description: item.snippet?.description?.slice(0, 500) ?? null,\n    thumbnail_url: item.snippet?.thumbnails?.high?.url ?? item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url ?? null,\n    embed_url: `https://www.youtube.com/watch?v=${item.id?.videoId}`,\n    author_name: item.snippet?.channelTitle ?? null,\n    author_avatar_url: null,\n    view_count: 0,\n    like_count: 0,\n    tags: ['education', 'study'],\n    duration_seconds: null,\n    published_at: item.snippet?.publishedAt ?? null,\n  }\n})).filter(r => r.json.external_id);"
+      },
+      "id": "map-topic-videos",
+      "name": "Map topic videos to external_content rows",
+      "type": "n8n-nodes-base.code",
+      "position": [920, 420],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Merge channel + topic results",
+      "type": "n8n-nodes-base.merge",
+      "position": [1140, 300],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/external_content",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "on_conflict", "value": "platform,external_id" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { platform: $json.platform, external_id: $json.external_id, title: $json.title, description: $json.description, thumbnail_url: $json.thumbnail_url, embed_url: $json.embed_url, author_name: $json.author_name, author_avatar_url: $json.author_avatar_url, view_count: $json.view_count, like_count: $json.like_count, tags: $json.tags, duration_seconds: $json.duration_seconds, published_at: $json.published_at } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates,return=minimal" }
+          ]
+        }
+      },
+      "id": "upsert-external-content",
+      "name": "Upsert into external_content",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1360, 300],
+      "typeVersion": 4.2,
+      "notes": "Uses Supabase upsert (Prefer: resolution=merge-duplicates) to avoid duplicates based on the unique(platform, external_id) constraint."
+    }
+  ],
+  "connections": {
+    "Every 6 hours": { "main": [[{ "node": "Fetch curated YouTube channels", "type": "main", "index": 0 }]] },
+    "Fetch curated YouTube channels": {
+      "main": [[
+        { "node": "YouTube: latest videos from channel", "type": "main", "index": 0 },
+        { "node": "YouTube: topic-based search", "type": "main", "index": 0 }
+      ]]
+    },
+    "YouTube: latest videos from channel": { "main": [[{ "node": "Map channel videos to external_content rows", "type": "main", "index": 0 }]] },
+    "Map channel videos to external_content rows": { "main": [[{ "node": "Merge channel + topic results", "type": "main", "index": 0 }]] },
+    "YouTube: topic-based search": { "main": [[{ "node": "Map topic videos to external_content rows", "type": "main", "index": 0 }]] },
+    "Map topic videos to external_content rows": { "main": [[{ "node": "Merge channel + topic results", "type": "main", "index": 1 }]] },
+    "Merge channel + topic results": { "main": [[{ "node": "Upsert into external_content", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

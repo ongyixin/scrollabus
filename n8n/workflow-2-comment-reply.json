@@ -1,0 +1,126 @@
+{
+  "name": "Scrollabus: Comment → AI Reply",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "scrollabus-comment-reply",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/posts",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "id", "value": "=eq.{{ ($json.body ?? $json).post_id }}" },
+            { "name": "select", "value": "id,title,body,post_type,persona_id,personas(id,slug,name,system_prompt,accent_color,emoji,role_tag)" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "fetch-post",
+      "name": "Fetch post + persona",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookJson = $('Webhook').first().json;\nconst triggerData = webhookJson.body ?? webhookJson;\nconst postRaw = $input.first().json;\nconst post = Array.isArray(postRaw) ? postRaw[0] : postRaw;\nconst persona = post.personas;\n\nconst systemPrompt = persona.system_prompt + `\\n\\nYou are replying to a student comment on one of your posts. Keep your reply concise (2-4 sentences), in-character, and educationally useful. Be warm and engaging.\\n\\nIMPORTANT: Do NOT output JSON. Write your reply as plain conversational text only — no curly braces, no field names, no JSON structure.`;\n\nconst userPrompt = `Your post:\\nTitle: ${post.title ?? '(untitled)'}\\nContent: ${post.body}\\n\\nStudent reply: \"${triggerData.comment_body}\"\\n\\nWrite a brief, in-character reply.`;\n\nconst llmBody = JSON.stringify({\n  model: 'deepseek-ai/DeepSeek-V3.2',\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userPrompt }\n  ],\n  max_tokens: 256,\n  temperature: 0.8\n});\n\nreturn [{\n  json: {\n    comment_id: triggerData.comment_id,\n    post_id: triggerData.post_id,\n    persona_id: persona.id,\n    system_prompt: systemPrompt,\n    user_prompt: userPrompt,\n    llm_body: llmBody,\n  }\n}];"
+      },
+      "id": "build-reply-prompt",
+      "name": "Build reply prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [680, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.featherless.ai/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'deepseek-ai/DeepSeek-V3.2', messages: [{ role: 'system', content: $json.system_prompt }, { role: 'user', content: $json.user_prompt }], max_tokens: 256, temperature: 0.8 } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.FEATHERLESS_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        }
+      },
+      "id": "call-featherless",
+      "name": "Call Featherless",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [900, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const llmResponse = $input.first().json;\nconst prevData = $('Build reply prompt').first().json;\n\nconst replyBody = llmResponse.choices?.[0]?.message?.content?.trim() ?? 'Thanks for your reply!';\n\nreturn [{\n  json: {\n    post_id: prevData.post_id,\n    persona_id: prevData.persona_id,\n    parent_comment_id: prevData.comment_id,\n    body: replyBody,\n  }\n}];"
+      },
+      "id": "parse-reply",
+      "name": "Parse reply",
+      "type": "n8n-nodes-base.code",
+      "position": [1120, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/comments",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { post_id: $json.post_id, persona_id: $json.persona_id, parent_comment_id: $json.parent_comment_id, body: $json.body } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        }
+      },
+      "id": "insert-reply",
+      "name": "Insert reply to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1340, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true }"
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [1560, 300],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Fetch post + persona", "type": "main", "index": 0 }]] },
+    "Fetch post + persona": { "main": [[{ "node": "Build reply prompt", "type": "main", "index": 0 }]] },
+    "Build reply prompt": { "main": [[{ "node": "Call Featherless", "type": "main", "index": 0 }]] },
+    "Call Featherless": { "main": [[{ "node": "Parse reply", "type": "main", "index": 0 }]] },
+    "Parse reply": { "main": [[{ "node": "Insert reply to Supabase", "type": "main", "index": 0 }]] },
+    "Insert reply to Supabase": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

@@ -1,0 +1,163 @@
+{
+  "name": "Scrollabus: Material → Posts (Orchestrator)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "scrollabus-material-to-posts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true }"
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [460, 500],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst { material_id, raw_text, title, enabled_personas, enable_av_output } = body;\n\nconst words = raw_text.split(/\\s+/);\nconst chunkSize = 300;\nconst chunks = [];\nfor (let i = 0; i < words.length; i += chunkSize) {\n  chunks.push(words.slice(i, i + chunkSize).join(' '));\n}\nconst limited = chunks.slice(0, 5);\n\nconst allPersonaSlugs = ['lecture-bestie', 'exam-gremlin', 'problem-grinder', 'doodle-prof', 'meme-lord', 'study-bard'];\nconst allPostTypes    = ['concept', 'trap', 'example', 'concept', 'example', 'recap'];\n\nconst activePersonas = Array.isArray(enabled_personas) && enabled_personas.length > 0\n  ? enabled_personas.filter(s => allPersonaSlugs.includes(s))\n  : allPersonaSlugs;\n\nconst imagePrimaryPersonas = new Set(['doodle-prof', 'meme-lord']);\nconst audioPrimaryPersonas = new Set(['study-bard']);\nconst otherMediaTypesAV    = ['text', 'video', 'text', 'image'];\nconst otherMediaTypesNoAV  = ['text', 'image'];\n\nconst items = [];\nfor (let ci = 0; ci < limited.length; ci++) {\n  for (let pi = 0; pi < activePersonas.length; pi++) {\n    const personaSlug = activePersonas[pi];\n    const origIndex   = allPersonaSlugs.indexOf(personaSlug);\n    let mediaType;\n    if (imagePrimaryPersonas.has(personaSlug)) {\n      mediaType = 'image';\n    } else if (audioPrimaryPersonas.has(personaSlug)) {\n      mediaType = enable_av_output !== false ? 'audio' : 'text';\n    } else if (enable_av_output !== false) {\n      mediaType = otherMediaTypesAV[ci % otherMediaTypesAV.length];\n    } else {\n      mediaType = otherMediaTypesNoAV[ci % otherMediaTypesNoAV.length];\n    }\n    items.push({\n      material_id,\n      title,\n      chunk_text: limited[ci],\n      chunk_index: ci,\n      persona_slug: personaSlug,\n      post_type: allPostTypes[origIndex] ?? 'concept',\n      media_type: mediaType,\n    });\n  }\n}\n\nreturn items.map(item => ({ json: item }));"
+      },
+      "id": "split-into-chunks",
+      "name": "Split into chunks",
+      "type": "n8n-nodes-base.code",
+      "position": [460, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/personas",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "slug",   "value": "=eq.{{ $json.persona_slug }}" },
+            { "name": "select", "value": "id,slug,system_prompt,name,emoji" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "fetch-persona",
+      "name": "Fetch persona",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [680, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const allChunks   = $('Split into chunks').all();\nconst allPersonas = $input.all();\n\nconst items = [];\nfor (let i = 0; i < allPersonas.length; i++) {\n  const chunk      = allChunks[i].json;\n  const personaRaw = allPersonas[i].json;\n  const persona    = Array.isArray(personaRaw) ? personaRaw[0] : personaRaw;\n\n  if (!persona || !persona.id) continue;\n\n  const userPrompt = `Here is a section of study material titled \"${chunk.title}\":\\n\\n${chunk.chunk_text}\\n\\nGenerate one educational post about the main concept in this section. Return ONLY valid JSON with fields \"title\" and \"body\".`;\n\n  items.push({\n    json: {\n      ...chunk,\n      persona_id:    persona.id,\n      persona_name:  persona.name,\n      system_prompt: persona.system_prompt,\n      user_prompt:   userPrompt,\n    }\n  });\n}\n\nreturn items;"
+      },
+      "id": "build-prompt",
+      "name": "Build prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [900, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": { "__rl": true, "value": "1Vv4kaD2TgnEL5Cj", "mode": "id" },
+        "options": { "waitForSubWorkflow": false }
+      },
+      "id": "execute-text",
+      "name": "Execute: text",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "position": [1120, 100],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": { "__rl": true, "value": "bD8ekHlmRbaaRL7M", "mode": "id" },
+        "options": { "waitForSubWorkflow": false }
+      },
+      "id": "execute-image",
+      "name": "Execute: image",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "position": [1120, 240],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": { "__rl": true, "value": "UhujpwaWsa2IcBzL", "mode": "id" },
+        "options": { "waitForSubWorkflow": false }
+      },
+      "id": "execute-audio-tts",
+      "name": "Execute: audio TTS",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "position": [1120, 380],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": { "__rl": true, "value": "d28AnfwnX2h49fX3", "mode": "id" },
+        "options": { "waitForSubWorkflow": false }
+      },
+      "id": "execute-audio-bard",
+      "name": "Execute: audio bard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "position": [1120, 520],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": { "__rl": true, "value": "3mk9N5OvEw5Stgui", "mode": "id" },
+        "options": { "waitForSubWorkflow": false }
+      },
+      "id": "execute-video",
+      "name": "Execute: video",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "position": [1120, 660],
+      "typeVersion": 1.1
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[
+        { "node": "Split into chunks", "type": "main", "index": 0 },
+        { "node": "Respond",           "type": "main", "index": 0 }
+      ]]
+    },
+    "Split into chunks": {
+      "main": [[{ "node": "Fetch persona", "type": "main", "index": 0 }]]
+    },
+    "Fetch persona": {
+      "main": [[{ "node": "Build prompt", "type": "main", "index": 0 }]]
+    },
+    "Build prompt": {
+      "main": [[
+        { "node": "Execute: text",       "type": "main", "index": 0 },
+        { "node": "Execute: image",      "type": "main", "index": 0 },
+        { "node": "Execute: audio TTS",  "type": "main", "index": 0 },
+        { "node": "Execute: audio bard", "type": "main", "index": 0 },
+        { "node": "Execute: video",      "type": "main", "index": 0 }
+      ]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "notes": "Orchestrator: chunks text, fetches personas, builds prompts, then fires 5 sub-workflows in parallel (waitForSubWorkflow: false). IMPORTANT: after importing all 6 workflows, replace the REPLACE_WITH_* placeholder IDs in each Execute node with the actual numeric workflow IDs from your n8n instance. Sub-workflows: workflow-1a-sub-text, workflow-1b-sub-image, workflow-1c-sub-audio-tts, workflow-1d-sub-audio-bard, workflow-1e-sub-video. Env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY"
+  }
+}

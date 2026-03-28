@@ -1,0 +1,145 @@
+{
+  "name": "Scrollabus: Sub — Audio TTS Posts",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [240, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().filter(i => i.json.media_type === 'audio' && i.json.persona_slug !== 'study-bard');"
+      },
+      "id": "filter-audio-tts",
+      "name": "Filter: audio (TTS)",
+      "type": "n8n-nodes-base.code",
+      "position": [460, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rachel  21m00Tcm4TlvDq8ikWAM — warm, clear female (lecture-bestie)\n// Elli    MF3mGyEYCl7XYWbV9V6O — young, energetic female (exam-gremlin)\n// Josh    TxGEqnHWrfWFTfGW9XjX — deep, focused male (problem-grinder)\n// Antoni  ErXwobaYiN019PkySvjV — approachable, playful male (doodle-prof)\n// Sam     yoZ06aMxZJJ28mfd3POQ — raspy, laid-back male (meme-lord)\nconst VOICE_MAP = {\n  'lecture-bestie':  { voice: '21m00Tcm4TlvDq8ikWAM', stability: 0.75, similarity_boost: 0.75 },\n  'exam-gremlin':    { voice: 'MF3mGyEYCl7XYWbV9V6O', stability: 0.30, similarity_boost: 0.60 },\n  'problem-grinder': { voice: 'TxGEqnHWrfWFTfGW9XjX', stability: 0.85, similarity_boost: 0.80 },\n  'doodle-prof':     { voice: 'ErXwobaYiN019PkySvjV', stability: 0.40, similarity_boost: 0.70 },\n  'meme-lord':       { voice: 'yoZ06aMxZJJ28mfd3POQ', stability: 0.25, similarity_boost: 0.65 },\n};\n\nconst items = $input.all();\nreturn items.map(item => {\n  const cfg = VOICE_MAP[item.json.persona_slug] ?? VOICE_MAP['lecture-bestie'];\n  const ttsText =\n    `Here is your ${item.json.post_type} for today.\\n\\n${item.json.chunk_text.slice(0, 800)}`;\n  return {\n    json: {\n      ...item.json,\n      tts_text:             ttsText,\n      tts_voice:            cfg.voice,\n      tts_stability:        cfg.stability,\n      tts_similarity_boost: cfg.similarity_boost,\n      tts_title:            item.json.title ?? item.json.chunk_text.slice(0, 120),\n    }\n  };\n});"
+      },
+      "id": "build-audio-prompt",
+      "name": "Build audio prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [680, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-batches",
+      "name": "Split in Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [900, 300],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "jsCode": "const item   = $input.first().json;\nconst apiKey = $vars.ELEVENLABS_API_KEY;\n\nconst response = await fetch(\n  `https://api.elevenlabs.io/v1/text-to-speech/${item.tts_voice}`,\n  {\n    method: 'POST',\n    headers: {\n      'xi-api-key':   apiKey,\n      'Content-Type': 'application/json',\n      'Accept':       'audio/mpeg',\n    },\n    body: JSON.stringify({\n      text:     item.tts_text,\n      model_id: 'eleven_turbo_v2_5',\n      voice_settings: {\n        stability:        item.tts_stability,\n        similarity_boost: item.tts_similarity_boost,\n      },\n    }),\n  }\n);\n\nif (!response.ok) {\n  const err = await response.text();\n  throw new Error(`ElevenLabs TTS failed: ${response.status} — ${err}`);\n}\n\nconst audioBuffer = await response.arrayBuffer();\nconst audioB64    = Buffer.from(audioBuffer).toString('base64');\nconst filePath    = `${item.material_id}/${item.persona_slug}-${item.chunk_index}-audio.mp3`;\n\nreturn [{\n  json: {\n    ...item,\n    audio_b64: audioB64,\n    mime_type: 'audio/mpeg',\n    file_path: filePath,\n  },\n  binary: {\n    audio_data: {\n      data:     audioB64,\n      mimeType: 'audio/mpeg',\n      fileName: `${item.persona_slug}-${item.chunk_index}-audio.mp3`,\n    },\n  },\n}];"
+      },
+      "id": "call-elevenlabs-tts",
+      "name": "Call ElevenLabs TTS",
+      "type": "n8n-nodes-base.code",
+      "position": [1120, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/storage/v1/object/post-media/{{ $json.file_path }}",
+        "contentType": "binaryData",
+        "inputDataFieldName": "audio_data",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "audio/mpeg" },
+            { "name": "x-upsert",      "value": "true" }
+          ]
+        }
+      },
+      "id": "upload-audio",
+      "name": "Upload audio to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1340, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev        = $('Call ElevenLabs TTS').first().json;\nconst supabaseUrl = $vars.SUPABASE_URL;\nconst mediaUrl    = `${supabaseUrl}/storage/v1/object/public/post-media/${prev.file_path}`;\nreturn [{\n  json: {\n    material_id: prev.material_id,\n    persona_id:  prev.persona_id,\n    post_type:   prev.post_type,\n    title:       prev.tts_title ?? null,\n    body:        prev.chunk_text.slice(0, 300),\n    media_type:  'audio',\n    media_url:   mediaUrl,\n    source:      'n8n',\n    sort_order:  prev.chunk_index * 4 + 2,\n  }\n}];"
+      },
+      "id": "build-audio-post",
+      "name": "Build audio post",
+      "type": "n8n-nodes-base.code",
+      "position": [1560, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/posts",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        }
+      },
+      "id": "insert-audio-post",
+      "name": "Insert audio post",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1780, 300],
+      "typeVersion": 4.2
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Filter: audio (TTS)", "type": "main", "index": 0 }]]
+    },
+    "Filter: audio (TTS)": {
+      "main": [[{ "node": "Build audio prompt", "type": "main", "index": 0 }]]
+    },
+    "Build audio prompt": {
+      "main": [[{ "node": "Split in Batches", "type": "main", "index": 0 }]]
+    },
+    "Split in Batches": {
+      "main": [
+        [{ "node": "Call ElevenLabs TTS", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Call ElevenLabs TTS": {
+      "main": [[{ "node": "Upload audio to Storage", "type": "main", "index": 0 }]]
+    },
+    "Upload audio to Storage": {
+      "main": [[{ "node": "Build audio post", "type": "main", "index": 0 }]]
+    },
+    "Build audio post": {
+      "main": [[{ "node": "Insert audio post", "type": "main", "index": 0 }]]
+    },
+    "Insert audio post": {
+      "main": [[{ "node": "Split in Batches", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "notes": "Sub-workflow 1c: receives all built-prompt items from orchestrator, filters to media_type=audio and persona != study-bard, processes ONE item at a time via Split in Batches (batch size 1) to avoid rate-limit issues, generates speech with ElevenLabs eleven_turbo_v2_5, uploads MP3 to Supabase Storage, inserts post. Each persona maps to a distinct ElevenLabs voice with tuned stability/similarity_boost for differentiated delivery. Env vars: ELEVENLABS_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY"
+  }
+}

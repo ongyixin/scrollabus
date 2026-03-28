@@ -1,0 +1,155 @@
+{
+  "name": "Scrollabus: Sub — Image Posts",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [240, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().filter(i => i.json.media_type === 'image');"
+      },
+      "id": "filter-image",
+      "name": "Filter: image",
+      "type": "n8n-nodes-base.code",
+      "position": [460, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    image_prompt: `Educational ${item.json.post_type} illustration: ${item.json.title ?? item.json.chunk_text.slice(0, 200)}. Style: ${item.json.persona_slug === 'doodle-prof' ? 'rough hand-drawn doodle comic strip, 3 panels, black pen on white, stick figures with speech bubbles' : item.json.persona_slug === 'meme-lord' ? 'classic internet meme template with bold Impact font text overlay, funny and relatable' : item.json.persona_slug === 'exam-gremlin' ? 'exam paper aesthetic with bold red warning stamps and hand-drawn trap annotations, circled mistakes and angry scrawled corrections' : item.json.persona_slug === 'lecture-bestie' ? 'clean pastel infographic with friendly icons, lavender colour palette, clear section labels and simple diagrams' : item.json.persona_slug === 'study-bard' ? 'vibrant concert-poster style with musical notes and floating lyrics, sky blue and gold palette, bold decorative typography' : 'precise step-by-step mathematical diagram with numbered annotations, graph paper grid background, technical notation'}. No human faces. Square format.`\n  }\n}));"
+      },
+      "id": "build-image-prompt",
+      "name": "Build image prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [680, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "key", "value": "={{ $vars.GEMINI_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { contents: [{ parts: [{ text: $json.image_prompt }] }], generationConfig: { responseModalities: ['IMAGE'] } } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        }
+      },
+      "id": "call-gemini-image",
+      "name": "Call Gemini (Nano Banana 2)",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [900, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const items     = $input.all();\nconst buildData = $('Build image prompt').all();\n\nconst results = [];\nfor (let i = 0; i < items.length; i++) {\n  const response  = items[i].json;\n  const prevData  = buildData[i].json;\n  const part      = response?.candidates?.[0]?.content?.parts?.[0];\n  const b64       = part?.inlineData?.data ?? null;\n  const mimeType  = part?.inlineData?.mimeType ?? 'image/png';\n\n  if (!b64) continue;\n\n  results.push({\n    json: {\n      ...prevData,\n      image_b64: b64,\n      mime_type: mimeType,\n      file_path: `${prevData.material_id}/${prevData.persona_slug}-${prevData.chunk_index}-image.png`,\n    },\n    binary: {\n      image_b64: { data: b64, mimeType: mimeType, fileName: `${prevData.persona_slug}-${prevData.chunk_index}-image.png` }\n    }\n  });\n}\nreturn results;"
+      },
+      "id": "extract-image",
+      "name": "Extract image data",
+      "type": "n8n-nodes-base.code",
+      "position": [1120, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/storage/v1/object/post-media/{{ $json.file_path }}",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "image_b64",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "={{ $json.mime_type }}" },
+            { "name": "x-upsert",      "value": "true" }
+          ]
+        }
+      },
+      "id": "upload-image",
+      "name": "Upload image to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1340, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const uploadResponses = $input.all();\nconst extractData     = $('Extract image data').all();\nconst supabaseUrl     = $vars.SUPABASE_URL;\n\nreturn uploadResponses.map((res, i) => {\n  const prev     = extractData[i].json;\n  const mediaUrl = `${supabaseUrl}/storage/v1/object/public/post-media/${prev.file_path}`;\n  return {\n    json: {\n      material_id: prev.material_id,\n      persona_id:  prev.persona_id,\n      post_type:   prev.post_type,\n      title:       prev.title ?? null,\n      body:        prev.chunk_text.slice(0, 300),\n      media_type:  'image',\n      media_url:   mediaUrl,\n      source:      'n8n',\n      sort_order:  prev.chunk_index * 4 + 1,\n    }\n  };\n});"
+      },
+      "id": "build-image-post",
+      "name": "Build image post",
+      "type": "n8n-nodes-base.code",
+      "position": [1560, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/posts",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        }
+      },
+      "id": "insert-image-post",
+      "name": "Insert image post",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1780, 300],
+      "typeVersion": 4.2
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Filter: image", "type": "main", "index": 0 }]]
+    },
+    "Filter: image": {
+      "main": [[{ "node": "Build image prompt", "type": "main", "index": 0 }]]
+    },
+    "Build image prompt": {
+      "main": [[{ "node": "Call Gemini (Nano Banana 2)", "type": "main", "index": 0 }]]
+    },
+    "Call Gemini (Nano Banana 2)": {
+      "main": [[{ "node": "Extract image data", "type": "main", "index": 0 }]]
+    },
+    "Extract image data": {
+      "main": [[{ "node": "Upload image to Storage", "type": "main", "index": 0 }]]
+    },
+    "Upload image to Storage": {
+      "main": [[{ "node": "Build image post", "type": "main", "index": 0 }]]
+    },
+    "Build image post": {
+      "main": [[{ "node": "Insert image post", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "notes": "Sub-workflow 1b: receives all built-prompt items from orchestrator, filters to media_type=image, generates image with Gemini 3.1 Flash Image Preview (Nano Banana 2), uploads to Supabase Storage, inserts post. Env vars: GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY"
+  }
+}

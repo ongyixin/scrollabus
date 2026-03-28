@@ -1,0 +1,71 @@
+{
+  "name": "Scrollabus: Engagement Sync → Google Sheet (for Creao)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 1 }]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/rpc/get_engagement_summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        }
+      },
+      "id": "fetch-engagement",
+      "name": "Fetch engagement summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 300],
+      "typeVersion": 4.2,
+      "notes": "Calls a Supabase RPC that returns: { top_topics, confusion_topics, save_count, comment_count } for last 24h. Create this RPC in Supabase SQL editor using the engagement-rpc.sql file."
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst now = new Date().toISOString();\n\n// Format for Creao to read\nconst row = {\n  timestamp: now,\n  top_topics: JSON.stringify(data.top_topics ?? []),\n  confusion_topics: JSON.stringify(data.confusion_topics ?? []),\n  total_saves: data.save_count ?? 0,\n  total_comments: data.comment_count ?? 0,\n  creao_status: 'new',\n  creao_output: '',\n};\n\nreturn [{ json: row }];"
+      },
+      "id": "format-row",
+      "name": "Format for Google Sheet",
+      "type": "n8n-nodes-base.code",
+      "position": [680, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "mode": "id", "value": "={{ $vars.GOOGLE_SHEET_ID }}" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "engagement" },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "append-to-sheet",
+      "name": "Append to Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [900, 300],
+      "typeVersion": 4.4,
+      "notes": "Requires Google Sheets OAuth credential in n8n. Set GOOGLE_SHEET_ID env var."
+    }
+  ],
+  "connections": {
+    "Every hour": { "main": [[{ "node": "Fetch engagement summary", "type": "main", "index": 0 }]] },
+    "Fetch engagement summary": { "main": [[{ "node": "Format for Google Sheet", "type": "main", "index": 0 }]] },
+    "Format for Google Sheet": { "main": [[{ "node": "Append to Google Sheet", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

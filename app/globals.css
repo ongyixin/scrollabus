@@ -1,0 +1,331 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   Scrollabus — Global Styles
+   Soft Y2K Editorial Aesthetic
+   ======================================== */
+
+:root {
+  --color-cream: #FFF8F0;
+  --color-charcoal: #2D2926;
+  --color-warm-black: #1A1612;
+  --font-sans: var(--font-sans, system-ui, sans-serif);
+  --font-display: var(--font-display, Georgia, serif);
+  --font-mono: var(--font-mono, monospace);
+}
+
+/* Smooth scrolling everywhere except the feed (controlled by JS) */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-cream);
+  color: var(--color-charcoal);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ========================================
+   Feed: full-height snap scroll
+   ======================================== */
+
+.feed-container {
+  height: 100dvh;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.feed-container::-webkit-scrollbar {
+  display: none;
+}
+
+/* ========================================
+   Typography helpers
+   ======================================== */
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* ========================================
+   Utility animations
+   ======================================== */
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+/* Bounce with different delays for typing indicator */
+@keyframes bounce-dot {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-6px); }
+}
+
+/* ========================================
+   Safe area utilities
+   ======================================== */
+
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+}
+
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+
+/* ========================================
+   Card hover / press states
+   ======================================== */
+
+.card-interactive {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.card-interactive:active {
+  transform: scale(0.98);
+}
+
+/* ========================================
+   Vaul drawer overrides
+   ======================================== */
+
+[vaul-drawer] {
+  touch-action: none;
+}
+
+/* ========================================
+   Selection color
+   ======================================== */
+
+::selection {
+  background-color: #C9B8E8;
+  color: #1A1612;
+}
+
+/* ========================================
+   Soft Y2K Gel Buttons
+   Glossy, bubbly, tactile CTA buttons
+   ======================================== */
+
+.btn-gel {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  border-radius: 1rem;
+  padding: 0.875rem 1.5rem;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.15s ease,
+              filter 0.15s ease;
+  box-shadow: 0 4px 12px rgba(26,22,18,0.12), inset 0 1px 0 rgba(255,255,255,0.4);
+  overflow: hidden;
+}
+
+.btn-gel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0) 55%);
+  pointer-events: none;
+}
+
+.btn-gel:active {
+  transform: scale(0.96);
+  box-shadow: 0 1px 4px rgba(26,22,18,0.12), inset 0 2px 4px rgba(0,0,0,0.08);
+  filter: brightness(0.97);
+}
+
+.btn-gel-dark {
+  background-color: #2D2926;
+  color: #FFF8F0;
+  box-shadow: 0 4px 12px rgba(26,22,18,0.25), inset 0 1px 0 rgba(255,255,255,0.12);
+}
+
+.btn-gel-dark:active {
+  box-shadow: 0 1px 4px rgba(26,22,18,0.25), inset 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.btn-gel-lavender {
+  background: linear-gradient(135deg, #D5C8F0 0%, #C9B8E8 100%);
+  color: #3A255E;
+}
+
+.btn-gel-cream {
+  background: linear-gradient(135deg, #FFF8F0 0%, #F5ECD7 100%);
+  color: #2D2926;
+  border: 1px solid rgba(222,204,170,0.6);
+}
+
+/* ========================================
+   Noise / grain texture overlay (Y2K depth)
+   ======================================== */
+
+.texture-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+}
+
+/* ========================================
+   Frosted glass card
+   ======================================== */
+
+.card-frosted {
+  background: rgba(255, 248, 240, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 24px rgba(26,22,18,0.08), inset 0 1px 0 rgba(255,255,255,0.5);
+}
+
+/* ========================================
+   Iridescent shimmer border
+   ======================================== */
+
+.border-shimmer {
+  position: relative;
+}
+
+.border-shimmer::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #E8D5F5, #C9B8E8, #B0C0E8, #9DBE8A, #F5D97A);
+  background-size: 300% 300%;
+  animation: shimmerShift 6s ease infinite;
+  z-index: -1;
+  opacity: 0.6;
+}
+
+@keyframes shimmerShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ========================================
+   Soft glow background blobs
+   ======================================== */
+
+.bg-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* ========================================
+   Persona gradient card backgrounds
+   ======================================== */
+
+.card-persona-lavender {
+  background: linear-gradient(145deg, rgba(255,250,255,0.95) 0%, rgba(232,213,245,0.6) 100%);
+  border: 1px solid rgba(201,184,232,0.4);
+}
+
+.card-persona-cherry {
+  background: linear-gradient(145deg, rgba(255,252,252,0.95) 0%, rgba(255,200,196,0.5) 100%);
+  border: 1px solid rgba(212,84,74,0.2);
+}
+
+.card-persona-sage {
+  background: linear-gradient(145deg, rgba(252,255,252,0.95) 0%, rgba(212,235,200,0.5) 100%);
+  border: 1px solid rgba(157,190,138,0.3);
+}
+
+/* ========================================
+   BottomNav active glow
+   ======================================== */
+
+.nav-item-active-glow {
+  position: relative;
+}
+
+.nav-item-active-glow::before {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 3px;
+  border-radius: 2px;
+  background: #2D2926;
+  opacity: 0.6;
+}
+
+/* ========================================
+   Pull-quote styling
+   ======================================== */
+
+.pull-quote {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.5rem;
+  line-height: 1.4;
+  color: var(--color-charcoal);
+  position: relative;
+  padding-left: 1.25rem;
+}
+
+.pull-quote::before {
+  content: "\201C";
+  position: absolute;
+  left: -0.25rem;
+  top: -0.5rem;
+  font-size: 4rem;
+  line-height: 1;
+  opacity: 0.15;
+  font-family: Georgia, serif;
+}
+
+/* ========================================
+   Explore hero card
+   ======================================== */
+
+.explore-hero-card {
+  background: linear-gradient(145deg, #F8F0FF 0%, #EDD5FF 40%, #E8F0FF 100%);
+  border: 1px solid rgba(196,168,232,0.4);
+  box-shadow: 0 8px 40px rgba(196,168,232,0.3);
+}
+
+/* ========================================
+   Scrollbar hide utility
+   ======================================== */
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}

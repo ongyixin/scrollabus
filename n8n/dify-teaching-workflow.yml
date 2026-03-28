@@ -1,0 +1,958 @@
+app:
+  description: Memory-native teaching workflow for Scrollabus. Routes learning events
+    through HydraDB memory recall and GMI Cloud inference to generate personalized
+    teaching plans, study nudges, and feed prioritization.
+  icon: "\U0001F393"
+  icon_background: '#DBEAFE'
+  mode: workflow
+  name: Scrollabus Teaching Workflow
+kind: app
+version: '0.1'
+workflow:
+  conversation_variables: []
+  environment_variables:
+    - description: HydraDB API key for learner memory read/write operations
+      id: env-hydradb-api-key
+      name: HYDRADB_API_KEY
+      value: ''
+      value_type: secret
+  features:
+    file_upload:
+      enabled: false
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    text_to_speech:
+      enabled: false
+  graph:
+    edges:
+
+      # ── Spine ──────────────────────────────────────────────────────────────
+      - data:
+          isInIteration: false
+          sourceType: start
+          targetType: code
+        id: edge-start-parse
+        source: node-start
+        sourceHandle: source
+        target: node-parse-payload
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: code
+          targetType: if-else
+        id: edge-parse-route
+        source: node-parse-payload
+        sourceHandle: source
+        target: node-route
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      # ── Branch A: material_uploaded ────────────────────────────────────────
+      - data:
+          isInIteration: false
+          sourceType: if-else
+          targetType: http-request
+        id: edge-route-a1
+        source: node-route
+        sourceHandle: material_uploaded
+        target: node-a-recall
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: http-request
+          targetType: llm
+        id: edge-a1-a2
+        source: node-a-recall
+        sourceHandle: source
+        target: node-a-classify
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: llm
+          targetType: llm
+        id: edge-a2-a3
+        source: node-a-classify
+        sourceHandle: source
+        target: node-a-plan
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: llm
+          targetType: http-request
+        id: edge-a3-a4
+        source: node-a-plan
+        sourceHandle: source
+        target: node-a-write
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: http-request
+          targetType: end
+        id: edge-a4-end
+        source: node-a-write
+        sourceHandle: source
+        target: node-end-a
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      # ── Branch B: comment_posted ──────────────────────────────────────────
+      - data:
+          isInIteration: false
+          sourceType: if-else
+          targetType: http-request
+        id: edge-route-b1
+        source: node-route
+        sourceHandle: comment_posted
+        target: node-b-recall
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: http-request
+          targetType: llm
+        id: edge-b1-b2
+        source: node-b-recall
+        sourceHandle: source
+        target: node-b-reply
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: llm
+          targetType: http-request
+        id: edge-b2-b3
+        source: node-b-reply
+        sourceHandle: source
+        target: node-b-write
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: http-request
+          targetType: end
+        id: edge-b3-end
+        source: node-b-write
+        sourceHandle: source
+        target: node-end-b
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      # ── Branch C: feed_opened ──────────────────────────────────────────────
+      - data:
+          isInIteration: false
+          sourceType: if-else
+          targetType: llm
+        id: edge-route-c1
+        source: node-route
+        sourceHandle: feed_opened
+        target: node-c-analyze
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: llm
+          targetType: end
+        id: edge-c1-end
+        source: node-c-analyze
+        sourceHandle: source
+        target: node-end-c
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      # ── Branch D: scheduled_followup ───────────────────────────────────────
+      - data:
+          isInIteration: false
+          sourceType: if-else
+          targetType: http-request
+        id: edge-route-d1
+        source: node-route
+        sourceHandle: scheduled_followup
+        target: node-d-recall
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: http-request
+          targetType: llm
+        id: edge-d1-d2
+        source: node-d-recall
+        sourceHandle: source
+        target: node-d-nudge
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: llm
+          targetType: end
+        id: edge-d2-end
+        source: node-d-nudge
+        sourceHandle: source
+        target: node-end-d
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+    nodes:
+
+      # ════════════════════════════════════════════════════════════════════════
+      # START
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          desc: Receives events from the Scrollabus app (material upload, feed open, cron nudge)
+          selected: false
+          title: Start
+          type: start
+          variables:
+            - label: event_type
+              max_length: 64
+              options: []
+              required: true
+              type: text-input
+              variable: event_type
+            - label: user_id
+              max_length: 128
+              options: []
+              required: true
+              type: text-input
+              variable: user_id
+            - label: payload
+              max_length: 4096
+              options: []
+              required: false
+              type: paragraph
+              variable: payload
+        height: 148
+        id: node-start
+        position:
+          x: 30
+          y: 300
+        positionAbsolute:
+          x: 30
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # PARSE PAYLOAD
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          code: "import json\n\ndef main(payload: str) -> dict:\n    try:\n        p\
+            \ = json.loads(payload) if payload else {}\n    except Exception:\n  \
+            \      p = {}\n    wc = p.get('weak_concepts', [])\n    return {\n   \
+            \     'title': str(p.get('title', '')),\n        'topic_preview': str(p.get('topic_preview',\
+            \ ''))[:500],\n        'comment_body': str(p.get('comment_body', '')),\n\
+            \        'weak_concepts': json.dumps(wc) if isinstance(wc, list) else\
+            \ str(wc),\n        'phone_number': str(p.get('phone_number', '')),\n\
+            \        'action': str(p.get('action', '')),\n    }\n"
+          code_language: python3
+          desc: Parses the JSON payload string into individual typed variables
+          outputs:
+            title:
+              children: null
+              type: string
+            topic_preview:
+              children: null
+              type: string
+            comment_body:
+              children: null
+              type: string
+            weak_concepts:
+              children: null
+              type: string
+            phone_number:
+              children: null
+              type: string
+            action:
+              children: null
+              type: string
+          selected: false
+          title: Parse Payload
+          type: code
+          variables:
+            - value_selector:
+                - node-start
+                - payload
+              variable: payload
+        height: 54
+        id: node-parse-payload
+        position:
+          x: 334
+          y: 300
+        positionAbsolute:
+          x: 334
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # ROUTE BY EVENT TYPE
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          cases:
+            - case_id: material_uploaded
+              conditions:
+                - comparison_operator: ==
+                  id: cond-material
+                  value: material_uploaded
+                  variable_selector:
+                    - node-start
+                    - event_type
+              id: material_uploaded
+              logical_operator: and
+            - case_id: comment_posted
+              conditions:
+                - comparison_operator: ==
+                  id: cond-comment
+                  value: comment_posted
+                  variable_selector:
+                    - node-start
+                    - event_type
+              id: comment_posted
+              logical_operator: and
+            - case_id: feed_opened
+              conditions:
+                - comparison_operator: ==
+                  id: cond-feed
+                  value: feed_opened
+                  variable_selector:
+                    - node-start
+                    - event_type
+              id: feed_opened
+              logical_operator: and
+            - case_id: scheduled_followup
+              conditions:
+                - comparison_operator: ==
+                  id: cond-followup
+                  value: scheduled_followup
+                  variable_selector:
+                    - node-start
+                    - event_type
+              id: scheduled_followup
+              logical_operator: and
+          desc: Routes to the correct branch based on what triggered the workflow
+          selected: false
+          title: Route by Event Type
+          type: if-else
+        height: 262
+        id: node-route
+        position:
+          x: 638
+          y: 186
+        positionAbsolute:
+          x: 638
+          y: 186
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # BRANCH A — material_uploaded
+      # Goal: classify prior knowledge + generate personalized teaching plan
+      # ════════════════════════════════════════════════════════════════════════
+
+      - data:
+          authorization:
+            config:
+              header: Authorization
+              token: '{{ENV.HYDRADB_API_KEY}}'
+              type: bearer
+            type: bearer
+          body:
+            data: "{\n  \"query\": \"What does this student already know about {{#node-parse-payload.title#}}?\
+              \ Prior knowledge, misconceptions, goals, preferred learning style.\"\
+              ,\n  \"tenant_id\": \"scrollabus\",\n  \"sub_tenant_id\": \"{{#node-start.user_id#}}\"\
+              ,\n  \"alpha\": 0.8,\n  \"max_results\": 10\n}"
+            type: json
+          desc: Recalls what the learner already knows about this topic from HydraDB
+          headers: 'Content-Type: application/json'
+          method: post
+          params: ''
+          selected: false
+          timeout:
+            connect: 60
+            max_connect_retries: 3
+            max_retries: 3
+            read: 60
+            write: 60
+          title: 'A: Recall Learner Memory'
+          type: http-request
+          url: https://api.usecortex.ai/recall/recall_preferences
+          variables: []
+        height: 54
+        id: node-a-recall
+        position:
+          x: 942
+          y: 60
+        positionAbsolute:
+          x: 942
+          y: 60
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          context:
+            enabled: false
+            variable_selector: []
+          desc: Uses DeepSeek-R1-0528 to classify what the student already knows
+          model:
+            completion_params:
+              temperature: 0.3
+            mode: chat
+            # IMPORTANT: change 'provider' to match your custom provider name in Dify
+            # e.g. if you named it "gmi-cloud" use that value here
+            name: deepseek-ai/DeepSeek-R1-0528
+            provider: openai_api_compatible
+          prompt_template:
+            - id: sys-a-classify
+              role: system
+              text: 'You are a learning analytics expert. Assess the learner''s current
+                understanding based on their memory signals and the new material they
+                uploaded. Be concise. Return only valid JSON — no markdown fences.'
+            - id: usr-a-classify
+              role: user
+              text: "Material title: {{#node-parse-payload.title#}}\nTopic preview:\
+                \ {{#node-parse-payload.topic_preview#}}\n\nLearner memory from HydraDB:\n\
+                {{#node-a-recall.body#}}\n\nClassify prior knowledge as: beginner\
+                \ / familiar / advanced.\nList any misconceptions detected.\n\nReturn\
+                \ JSON only:\n{\"prior_knowledge\": \"...\", \"misconceptions\": [...],\
+                \ \"focus_areas\": [...]}"
+          selected: false
+          title: 'A: Classify Prior Knowledge'
+          type: llm
+          variables: []
+          vision:
+            enabled: false
+        height: 98
+        id: node-a-classify
+        position:
+          x: 1246
+          y: 60
+        positionAbsolute:
+          x: 1246
+          y: 60
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          context:
+            enabled: false
+            variable_selector: []
+          desc: Uses DeepSeek-R1-0528 to generate a personalized teaching plan
+          model:
+            completion_params:
+              temperature: 0.5
+            mode: chat
+            name: deepseek-ai/DeepSeek-R1-0528
+            provider: openai_api_compatible
+          prompt_template:
+            - id: sys-a-plan
+              role: system
+              text: "You are a pedagogical planning agent for Scrollabus, a memory-native\
+                \ AI study tool with six teaching personas:\n- Lecture Bestie: friendly\
+                \ explanations and everyday analogies\n- Exam Gremlin: trap spotting\
+                \ and common wrong answers\n- Problem Grinder: worked examples with\
+                \ numbered steps\n- Doodle Prof: three-panel stick-figure comics\n\
+                - Meme Lord: classic meme-format explanations\n- Study Bard: songs\
+                \ and rhymes that encode facts\nReturn only valid JSON — no markdown\
+                \ fences."
+            - id: usr-a-plan
+              role: user
+              text: "Material: {{#node-parse-payload.title#}}\nKnowledge profile:\
+                \ {{#node-a-classify.text#}}\n\nGenerate a personalized teaching plan:\n\
+                1. Which 2-3 personas are most useful for this material and why?\n\
+                2. What should be emphasized given their misconceptions?\n3. What concept\
+                \ should be reviewed first (most weak)?\n4. Suggest a follow-up quiz\
+                \ topic.\n\nReturn JSON only:\n{\"priority_personas\": [...], \"emphasis\"\
+                : \"...\", \"first_review_concept\": \"...\", \"quiz_topic\": \"...\"\
+                }"
+          selected: false
+          title: 'A: Generate Teaching Plan'
+          type: llm
+          variables: []
+          vision:
+            enabled: false
+        height: 98
+        id: node-a-plan
+        position:
+          x: 1550
+          y: 60
+        positionAbsolute:
+          x: 1550
+          y: 60
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          authorization:
+            config:
+              header: Authorization
+              token: '{{ENV.HYDRADB_API_KEY}}'
+              type: bearer
+            type: bearer
+          body:
+            data: "{\n  \"memories\": [{\n    \"text\": \"Teaching plan for '{{#node-parse-payload.title#}}':\
+              \ {{#node-a-plan.text#}}\",\n    \"infer\": false\n  }],\n  \"tenant_id\"\
+              : \"scrollabus\",\n  \"sub_tenant_id\": \"{{#node-start.user_id#}}\"\
+              ,\n  \"upsert\": true\n}"
+            type: json
+          desc: Persists the teaching plan back to HydraDB for future recall
+          headers: 'Content-Type: application/json'
+          method: post
+          params: ''
+          selected: false
+          timeout:
+            connect: 60
+            max_connect_retries: 3
+            max_retries: 3
+            read: 60
+            write: 60
+          title: 'A: Write Teaching Plan to Memory'
+          type: http-request
+          url: https://api.usecortex.ai/memories/add_memory
+          variables: []
+        height: 54
+        id: node-a-write
+        position:
+          x: 1854
+          y: 60
+        positionAbsolute:
+          x: 1854
+          y: 60
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          desc: Returns teaching plan and knowledge profile to the Scrollabus app
+          outputs:
+            - value_selector:
+                - node-a-plan
+                - text
+              variable: teaching_plan
+            - value_selector:
+                - node-a-classify
+                - text
+              variable: knowledge_profile
+          selected: false
+          title: 'A: End'
+          type: end
+        height: 98
+        id: node-end-a
+        position:
+          x: 2158
+          y: 60
+        positionAbsolute:
+          x: 2158
+          y: 60
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # BRANCH B — comment_posted
+      # Goal: generate a memory-aware persona reply to a student comment
+      # ════════════════════════════════════════════════════════════════════════
+
+      - data:
+          authorization:
+            config:
+              header: Authorization
+              token: '{{ENV.HYDRADB_API_KEY}}'
+              type: bearer
+            type: bearer
+          body:
+            data: "{\n  \"query\": \"{{#node-parse-payload.comment_body#}}\",\n \
+              \ \"tenant_id\": \"scrollabus\",\n  \"sub_tenant_id\": \"{{#node-start.user_id#}}\"\
+              ,\n  \"alpha\": 0.8,\n  \"max_results\": 8\n}"
+            type: json
+          desc: Recalls learner context relevant to this comment/question
+          headers: 'Content-Type: application/json'
+          method: post
+          params: ''
+          selected: false
+          timeout:
+            connect: 60
+            max_connect_retries: 3
+            max_retries: 3
+            read: 60
+            write: 60
+          title: 'B: Recall Learner Memory'
+          type: http-request
+          url: https://api.usecortex.ai/recall/recall_preferences
+          variables: []
+        height: 54
+        id: node-b-recall
+        position:
+          x: 942
+          y: 270
+        positionAbsolute:
+          x: 942
+          y: 270
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          context:
+            enabled: false
+            variable_selector: []
+          desc: Generates a memory-aware persona reply to the student's comment
+          model:
+            completion_params:
+              temperature: 0.7
+            mode: chat
+            name: deepseek-ai/DeepSeek-V3-0324
+            provider: openai_api_compatible
+          prompt_template:
+            - id: sys-b-reply
+              role: system
+              text: "You are a helpful AI study persona inside Scrollabus. Reply to\
+                \ the student's comment in a conversational, encouraging tone. Take\
+                \ into account what you know about this learner from their memory.\
+                \ Address any known misconceptions. Keep it concise — 2-4 sentences\
+                \ max."
+            - id: usr-b-reply
+              role: user
+              text: "Student's comment: {{#node-parse-payload.comment_body#}}\n\n\
+                Learner context from memory:\n{{#node-b-recall.body#}}\n\nReply to\
+                \ their comment, taking into account what you know about this learner.\
+                \ Be in character as a study persona — warm, direct, and educational."
+          selected: false
+          title: 'B: Generate Memory-Aware Reply'
+          type: llm
+          variables: []
+          vision:
+            enabled: false
+        height: 98
+        id: node-b-reply
+        position:
+          x: 1246
+          y: 270
+        positionAbsolute:
+          x: 1246
+          y: 270
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          authorization:
+            config:
+              header: Authorization
+              token: '{{ENV.HYDRADB_API_KEY}}'
+              type: bearer
+            type: bearer
+          body:
+            data: "{\n  \"memories\": [{\n    \"user_assistant_pairs\": [{\n     \
+              \ \"user\": \"{{#node-parse-payload.comment_body#}}\",\n      \"assistant\"\
+              : \"{{#node-b-reply.text#}}\"\n    }],\n    \"infer\": true\n  }],\n\
+              \  \"tenant_id\": \"scrollabus\",\n  \"sub_tenant_id\": \"{{#node-start.user_id#}}\"\
+              ,\n  \"upsert\": true\n}"
+            type: json
+          desc: Writes the comment interaction back to HydraDB with infer=true
+          headers: 'Content-Type: application/json'
+          method: post
+          params: ''
+          selected: false
+          timeout:
+            connect: 60
+            max_connect_retries: 3
+            max_retries: 3
+            read: 60
+            write: 60
+          title: 'B: Write Interaction to Memory'
+          type: http-request
+          url: https://api.usecortex.ai/memories/add_memory
+          variables: []
+        height: 54
+        id: node-b-write
+        position:
+          x: 1550
+          y: 270
+        positionAbsolute:
+          x: 1550
+          y: 270
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          desc: Returns the memory-aware reply to the Scrollabus app
+          outputs:
+            - value_selector:
+                - node-b-reply
+                - text
+              variable: reply
+          selected: false
+          title: 'B: End'
+          type: end
+        height: 98
+        id: node-end-b
+        position:
+          x: 1854
+          y: 270
+        positionAbsolute:
+          x: 1854
+          y: 270
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # BRANCH C — feed_opened
+      # Goal: surface the most urgent concept to review
+      # ════════════════════════════════════════════════════════════════════════
+
+      - data:
+          context:
+            enabled: false
+            variable_selector: []
+          desc: Identifies the weakest or most stale concept to surface in the feed
+          model:
+            completion_params:
+              temperature: 0.4
+            mode: chat
+            name: deepseek-ai/DeepSeek-V3-0324
+            provider: openai_api_compatible
+          prompt_template:
+            - id: sys-c-analyze
+              role: system
+              text: 'You are a spaced repetition and learning analytics agent. Identify
+                what the student most urgently needs to review based on their recent
+                learning signals. Return only valid JSON — no markdown fences.'
+            - id: usr-c-analyze
+              role: user
+              text: "The student just opened their study feed. Their recent weak concept\
+                \ signals:\n{{#node-parse-payload.weak_concepts#}}\n\nIdentify:\n\
+                1. The top concept they should review urgently (most confused or most\
+                \ stale).\n2. The best follow-up action.\n\nReturn JSON only:\n{\"\
+                urgent_review\": \"...\", \"action\": \"quiz|recap|re-read|ask_persona\"\
+                , \"message\": \"one-line nudge for the student, max 100 chars\"}"
+          selected: false
+          title: 'C: Analyze Weak Concepts'
+          type: llm
+          variables: []
+          vision:
+            enabled: false
+        height: 98
+        id: node-c-analyze
+        position:
+          x: 942
+          y: 460
+        positionAbsolute:
+          x: 942
+          y: 460
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          desc: Returns review suggestion for feed prioritization
+          outputs:
+            - value_selector:
+                - node-c-analyze
+                - text
+              variable: review_suggestion
+          selected: false
+          title: 'C: End'
+          type: end
+        height: 98
+        id: node-end-c
+        position:
+          x: 1246
+          y: 460
+        positionAbsolute:
+          x: 1246
+          y: 460
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # BRANCH D — scheduled_followup
+      # Goal: generate a personalized Photon iMessage/SMS nudge
+      # ════════════════════════════════════════════════════════════════════════
+
+      - data:
+          authorization:
+            config:
+              header: Authorization
+              token: '{{ENV.HYDRADB_API_KEY}}'
+              type: bearer
+            type: bearer
+          body:
+            data: "{\n  \"query\": \"Things the student hasn't reviewed recently,\
+              \ weak concepts, repeated mistakes, upcoming study goals\",\n  \"tenant_id\"\
+              : \"scrollabus\",\n  \"sub_tenant_id\": \"{{#node-start.user_id#}}\"\
+              ,\n  \"alpha\": 0.8,\n  \"recency_bias\": 0.5,\n  \"max_results\":\
+              \ 10\n}"
+            type: json
+          desc: Recalls stale and weak concepts for nudge generation
+          headers: 'Content-Type: application/json'
+          method: post
+          params: ''
+          selected: false
+          timeout:
+            connect: 60
+            max_connect_retries: 3
+            max_retries: 3
+            read: 60
+            write: 60
+          title: 'D: Recall Stale Concepts'
+          type: http-request
+          url: https://api.usecortex.ai/recall/recall_preferences
+          variables: []
+        height: 54
+        id: node-d-recall
+        position:
+          x: 942
+          y: 620
+        positionAbsolute:
+          x: 942
+          y: 620
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          context:
+            enabled: false
+            variable_selector: []
+          desc: Generates a personalized iMessage/SMS study nudge under 160 chars
+          model:
+            completion_params:
+              temperature: 0.8
+            mode: chat
+            name: deepseek-ai/DeepSeek-V3-0324
+            provider: openai_api_compatible
+          prompt_template:
+            - id: sys-d-nudge
+              role: system
+              text: "You are Scrollabus, a friendly AI study companion texting a student.\
+                \ Write ONE short iMessage/SMS nudge:\n- Under 160 characters\n- Warm\
+                \ and specific (mention the actual topic)\n- Always end with a reply\
+                \ CTA: reply 'quiz me', 'explain simpler', 'recap', or 'yes'\n- No\
+                \ emojis unless natural\nReturn only the message text, nothing else."
+            - id: usr-d-nudge
+              role: user
+              text: "Learner memory signals:\n{{#node-d-recall.body#}}\n\nGenerate\
+                \ ONE nudge for the most urgent/stale topic.\n\nExamples of good nudges:\n\
+                - \"You've mixed up mitosis and meiosis twice. Comic or quiz? Reply\
+                \ 'quiz me' or 'explain simpler'\"\n- \"Exam in 3 days? 2-min trap\
+                \ review on glycolysis. Reply 'go' to start\"\n- \"You saved supply/demand\
+                \ notes 5 days ago. Quick refresher? Reply 'yes'\""
+          selected: false
+          title: 'D: Generate Study Nudge'
+          type: llm
+          variables: []
+          vision:
+            enabled: false
+        height: 98
+        id: node-d-nudge
+        position:
+          x: 1246
+          y: 620
+        positionAbsolute:
+          x: 1246
+          y: 620
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      - data:
+          desc: Returns nudge message for Photon iMessage/SMS delivery
+          outputs:
+            - value_selector:
+                - node-d-nudge
+                - text
+              variable: nudge_message
+          selected: false
+          title: 'D: End'
+          type: end
+        height: 98
+        id: node-end-d
+        position:
+          x: 1550
+          y: 620
+        positionAbsolute:
+          x: 1550
+          y: 620
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+  variables: []

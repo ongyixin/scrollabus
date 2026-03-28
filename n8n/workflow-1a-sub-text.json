@@ -1,0 +1,98 @@
+{
+  "name": "Scrollabus: Sub — Text Posts",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [240, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().filter(i => i.json.media_type === 'text');"
+      },
+      "id": "filter-text",
+      "name": "Filter: text",
+      "type": "n8n-nodes-base.code",
+      "position": [460, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.featherless.ai/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'deepseek-ai/DeepSeek-V3.2', messages: [{ role: 'system', content: $json.system_prompt }, { role: 'user', content: $json.user_prompt }], max_tokens: 512, temperature: 0.7 } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.FEATHERLESS_API_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        }
+      },
+      "id": "call-featherless-text",
+      "name": "Call Featherless (text)",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [680, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const allLLMResponses    = $input.all();\nconst allBuildPromptData = $('Filter: text').all();\n\nconst items = [];\nfor (let i = 0; i < allLLMResponses.length; i++) {\n  const llmResponse = allLLMResponses[i].json;\n  const prevData    = allBuildPromptData[i].json;\n\n  let title = null;\n  let body  = '';\n\n  try {\n    const content   = llmResponse.choices[0].message.content;\n    const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n    if (jsonMatch) {\n      const parsed = JSON.parse(jsonMatch[0]);\n      title = parsed.title ?? null;\n      body  = parsed.body  ?? content;\n    } else {\n      body = content;\n    }\n  } catch (e) {\n    body = llmResponse.choices?.[0]?.message?.content ?? 'Content unavailable.';\n  }\n\n  items.push({\n    json: {\n      material_id: prevData.material_id,\n      persona_id:  prevData.persona_id,\n      post_type:   prevData.post_type,\n      title,\n      body,\n      media_type:  'text',\n      media_url:   null,\n      source:      'n8n',\n      sort_order:  prevData.chunk_index * 4 + 0,\n    }\n  });\n}\n\nreturn items;"
+      },
+      "id": "parse-text-response",
+      "name": "Parse text LLM response",
+      "type": "n8n-nodes-base.code",
+      "position": [900, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/posts",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        }
+      },
+      "id": "insert-text-post",
+      "name": "Insert text post",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1120, 300],
+      "typeVersion": 4.2
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Filter: text", "type": "main", "index": 0 }]]
+    },
+    "Filter: text": {
+      "main": [[{ "node": "Call Featherless (text)", "type": "main", "index": 0 }]]
+    },
+    "Call Featherless (text)": {
+      "main": [[{ "node": "Parse text LLM response", "type": "main", "index": 0 }]]
+    },
+    "Parse text LLM response": {
+      "main": [[{ "node": "Insert text post", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "notes": "Sub-workflow 1a: receives all built-prompt items from orchestrator, filters to media_type=text, calls Featherless DeepSeek-V3.2, parses response, inserts post. Env vars: FEATHERLESS_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY"
+  }
+}

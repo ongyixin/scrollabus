@@ -1,0 +1,134 @@
+{
+  "name": "Scrollabus: TikTok Content Fetch",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every 6 hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/curated_channels",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "platform", "value": "eq.tiktok" },
+            { "name": "is_active", "value": "eq.true" },
+            { "name": "select", "value": "channel_id,channel_name,tags" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "fetch-tiktok-channels",
+      "name": "Fetch curated TikTok URLs",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 300],
+      "typeVersion": 4.2,
+      "notes": "Reads TikTok entries from curated_channels. For TikTok, store the full video URL (e.g. https://www.tiktok.com/@user/video/123) in the channel_id column. The HTTP Request node (v4.2) automatically outputs each array element as a separate item."
+    },
+    {
+      "parameters": {
+        "url": "=https://www.tiktok.com/oembed",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "url", "value": "={{ $json.channel_id }}" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "User-Agent", "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" }
+          ]
+        }
+      },
+      "id": "tiktok-oembed",
+      "name": "TikTok oEmbed fetch",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [700, 300],
+      "typeVersion": 4.2,
+      "notes": "Calls TikTok's public oEmbed endpoint (no API key required) to retrieve embed data for a given video URL. The channel_id column should contain the full TikTok video URL.",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const oembed = $input.first().json;\nconst source = $('Fetch curated TikTok URLs').item.json;\n\n// Extract video ID from the TikTok URL stored in channel_id\nconst url = source.channel_id ?? '';\nconst videoIdMatch = url.match(/video\\/(\\d+)/);\nconst videoId = videoIdMatch ? videoIdMatch[1] : url;\n\n// Skip if oEmbed returned an error\nif (!oembed.title && !oembed.author_name) {\n  return [];\n}\n\nreturn [{\n  json: {\n    platform: 'tiktok',\n    external_id: videoId,\n    title: oembed.title ?? null,\n    description: null,\n    thumbnail_url: oembed.thumbnail_url ?? null,\n    embed_url: url,\n    author_name: oembed.author_name ?? null,\n    author_avatar_url: oembed.author_avatar_url ?? null,\n    view_count: 0,\n    like_count: 0,\n    tags: source.tags ?? [],\n    duration_seconds: null,\n    published_at: null,\n  }\n}];"
+      },
+      "id": "map-tiktok-oembed",
+      "name": "Map oEmbed to external_content row",
+      "type": "n8n-nodes-base.code",
+      "position": [920, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.external_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ]
+        }
+      },
+      "id": "filter-valid",
+      "name": "Filter valid results",
+      "type": "n8n-nodes-base.filter",
+      "position": [1140, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/external_content",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "on_conflict", "value": "platform,external_id" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { platform: $json.platform, external_id: $json.external_id, title: $json.title, description: $json.description, thumbnail_url: $json.thumbnail_url, embed_url: $json.embed_url, author_name: $json.author_name, author_avatar_url: $json.author_avatar_url, view_count: $json.view_count, like_count: $json.like_count, tags: $json.tags, duration_seconds: $json.duration_seconds, published_at: $json.published_at } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates,return=minimal" }
+          ]
+        }
+      },
+      "id": "upsert-tiktok-content",
+      "name": "Upsert TikTok into external_content",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1360, 300],
+      "typeVersion": 4.2,
+      "notes": "Upserts into Supabase using merge-duplicates to avoid duplicating the same video."
+    }
+  ],
+  "connections": {
+    "Every 6 hours": { "main": [[{ "node": "Fetch curated TikTok URLs", "type": "main", "index": 0 }]] },
+    "Fetch curated TikTok URLs": { "main": [[{ "node": "TikTok oEmbed fetch", "type": "main", "index": 0 }]] },
+    "TikTok oEmbed fetch": { "main": [[{ "node": "Map oEmbed to external_content row", "type": "main", "index": 0 }]] },
+    "Map oEmbed to external_content row": { "main": [[{ "node": "Filter valid results", "type": "main", "index": 0 }]] },
+    "Filter valid results": { "main": [[{ "node": "Upsert TikTok into external_content", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

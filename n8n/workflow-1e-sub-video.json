@@ -1,0 +1,124 @@
+{
+  "name": "Scrollabus: Sub — Video Posts",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [240, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().filter(i => i.json.media_type === 'video');"
+      },
+      "id": "filter-video",
+      "name": "Filter: video",
+      "type": "n8n-nodes-base.code",
+      "position": [460, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cap at 2 videos per run to avoid overwhelming the generation service\nreturn $input.all().slice(0, 2);"
+      },
+      "id": "limit-to-2",
+      "name": "Limit to 2 videos",
+      "type": "n8n-nodes-base.code",
+      "position": [680, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    video_prompt: `Short educational ${item.json.post_type} video clip, TikTok portrait style 9:16. Topic: ${item.json.title ?? item.json.chunk_text.slice(0, 150)}. Style: ${item.json.persona_slug === 'doodle-prof' ? 'animated doodle drawing itself on screen, sketch style, black pen on white paper, comic panels appearing' : item.json.persona_slug === 'meme-lord' ? 'rapid meme montage, bold Impact captions appearing one by one, reaction video format' : item.json.persona_slug === 'exam-gremlin' ? 'fast-paced meme style, bold captions, warning flashes' : item.json.persona_slug === 'lecture-bestie' ? 'friendly explainer with text callouts and icons, pastel lavender background' : item.json.persona_slug === 'study-bard' ? 'music lyric video, lyrics animating to beat, musical notes flying, sky blue and white palette' : 'step-by-step walkthrough with numbered highlights and arrows'}. No faces. 5 seconds.`\n  }\n}));"
+      },
+      "id": "build-video-prompt",
+      "name": "Build video prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [900, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.DIFY_API_URL + '/workflows/run' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { inputs: { prompt: $json.video_prompt }, response_mode: 'blocking', user: 'scrollabus-n8n' } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.DIFY_VIDEO_API_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        }
+      },
+      "id": "call-dify-video",
+      "name": "Call Dify (video)",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1120, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const difyResponses = $input.all();\nconst buildData     = $('Build video prompt').all();\n\nconst results = [];\nfor (let i = 0; i < difyResponses.length; i++) {\n  const response = difyResponses[i].json;\n  const prev     = buildData[i].json;\n\n  // Dify blocking workflow response: response.data.outputs.<your_output_var>\n  // Adjust the key below if your Dify workflow uses a different output variable name\n  const outputs  = response?.data?.outputs ?? {};\n  const videoUrl = outputs.video_url ?? outputs.url ?? outputs.result ?? null;\n  if (!videoUrl) continue;\n\n  results.push({\n    json: {\n      material_id: prev.material_id,\n      persona_id:  prev.persona_id,\n      post_type:   prev.post_type,\n      title:       prev.title ?? null,\n      body:        prev.chunk_text.slice(0, 300),\n      media_type:  'video',\n      media_url:   videoUrl,\n      source:      'n8n',\n      sort_order:  prev.chunk_index * 4 + 3,\n    }\n  });\n}\nreturn results;"
+      },
+      "id": "parse-video-response",
+      "name": "Parse video response",
+      "type": "n8n-nodes-base.code",
+      "position": [1340, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/posts",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        }
+      },
+      "id": "insert-video-post",
+      "name": "Insert video post",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1560, 300],
+      "typeVersion": 4.2
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Filter: video", "type": "main", "index": 0 }]]
+    },
+    "Filter: video": {
+      "main": [[{ "node": "Limit to 2 videos", "type": "main", "index": 0 }]]
+    },
+    "Limit to 2 videos": {
+      "main": [[{ "node": "Build video prompt", "type": "main", "index": 0 }]]
+    },
+    "Build video prompt": {
+      "main": [[{ "node": "Call Dify (video)", "type": "main", "index": 0 }]]
+    },
+    "Call Dify (video)": {
+      "main": [[{ "node": "Parse video response", "type": "main", "index": 0 }]]
+    },
+    "Parse video response": {
+      "main": [[{ "node": "Insert video post", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "notes": "Sub-workflow 1e: receives all built-prompt items from orchestrator, filters to media_type=video, caps at 2 per run, submits prompt to a Dify workflow app (blocking), parses the video URL from outputs, inserts post.\n\nSetup:\n1. Create a Dify Workflow app with one input variable named 'prompt' and one output variable named 'video_url' (or 'url' / 'result' — the parse node tries all three).\n2. Configure your preferred video-generation model (e.g. Kling, Wan, etc.) inside that Dify app.\n3. Add DIFY_VIDEO_API_KEY as an n8n variable (the API key for this specific Dify app, NOT the teaching-workflow key).\n4. DIFY_API_URL should be https://api.dify.ai/v1 (already set).\n5. SUPABASE_URL and SUPABASE_SERVICE_KEY must also be set as n8n variables."
+  }
+}

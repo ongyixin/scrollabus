@@ -1,0 +1,145 @@
+{
+  "name": "Scrollabus: Creao Content Ingest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300],
+      "typeVersion": 1.1
+    },
+    {
+      "parameters": {
+        "operation": "readOrSearch",
+        "documentId": { "__rl": true, "mode": "id", "value": "={{ $vars.GOOGLE_SHEET_ID }}" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "engagement" },
+        "filtersUI": {
+          "values": [
+            { "lookupColumn": "creao_status", "lookupValue": "new" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "read-new-rows",
+      "name": "Read new Creao rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [460, 300],
+      "typeVersion": 4.4,
+      "notes": "Reads rows where creao_status = 'new'. Creao writes its output to the creao_output column and sets creao_status = 'new'."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.creao_output }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ]
+        }
+      },
+      "id": "filter-has-content",
+      "name": "Has Creao output?",
+      "type": "n8n-nodes-base.filter",
+      "position": [680, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/personas",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "slug", "value": "eq.lecture-bestie" },
+            { "name": "select", "value": "id" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "fetch-persona",
+      "name": "Get Lecture Bestie persona ID",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [900, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $('Has Creao output?').first().json;\nconst personaRaw = $input.first().json;\nconst persona = Array.isArray(personaRaw) ? personaRaw[0] : personaRaw;\n\n// Try to parse Creao's output as JSON, else use as body\nlet title = 'Review: ' + new Date(row.timestamp).toLocaleDateString();\nlet body = row.creao_output;\n\ntry {\n  const parsed = JSON.parse(row.creao_output);\n  title = parsed.title ?? title;\n  body = parsed.body ?? body;\n} catch (e) {\n  // use raw text\n}\n\nreturn [{\n  json: {\n    persona_id: persona.id,\n    post_type: 'review',\n    title,\n    body,\n    source: 'creao',\n    sort_order: 0,\n    _row_index: row._rowIndex,\n  }\n}];"
+      },
+      "id": "build-post",
+      "name": "Build post from Creao output",
+      "type": "n8n-nodes-base.code",
+      "position": [1120, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/posts",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { persona_id: $json.persona_id, post_type: $json.post_type, title: $json.title, body: $json.body, source: 'creao', sort_order: 0 } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        }
+      },
+      "id": "insert-creao-post",
+      "name": "Insert Creao post to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1340, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": { "__rl": true, "mode": "id", "value": "={{ $vars.GOOGLE_SHEET_ID }}" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "engagement" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "creao_status": "ingested"
+          }
+        },
+        "where": {
+          "values": [
+            { "lookupColumn": "_rowIndex", "lookupValue": "={{ $('Build post from Creao output').first().json._row_index }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-ingested",
+      "name": "Mark row as ingested",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [1560, 300],
+      "typeVersion": 4.4
+    }
+  ],
+  "connections": {
+    "Every 15 minutes": { "main": [[{ "node": "Read new Creao rows", "type": "main", "index": 0 }]] },
+    "Read new Creao rows": { "main": [[{ "node": "Has Creao output?", "type": "main", "index": 0 }]] },
+    "Has Creao output?": { "main": [[{ "node": "Get Lecture Bestie persona ID", "type": "main", "index": 0 }]] },
+    "Get Lecture Bestie persona ID": { "main": [[{ "node": "Build post from Creao output", "type": "main", "index": 0 }]] },
+    "Build post from Creao output": { "main": [[{ "node": "Insert Creao post to Supabase", "type": "main", "index": 0 }]] },
+    "Insert Creao post to Supabase": { "main": [[{ "node": "Mark row as ingested", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

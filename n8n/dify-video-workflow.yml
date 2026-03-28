@@ -1,0 +1,504 @@
+app:
+  description: Generates a short video from a text prompt. Submits to a video generation
+    API, waits ~35 seconds, polls up to twice, and returns the finished video_url.
+    Called by n8n workflow-1e-sub-video with response_mode=blocking.
+  icon: "\U0001F3AC"
+  icon_background: '#FEE2E2'
+  mode: workflow
+  name: Scrollabus Video Generation
+kind: app
+version: '0.1'
+workflow:
+  conversation_variables: []
+  environment_variables:
+    # ── Provider: Kling AI (default) ──────────────────────────────────────────
+    # Get your key at https://klingai.com → API Keys
+    # To switch to Minimax: change url in "Submit Video Request" to
+    #   https://api.minimax.chat/v1/video_generation
+    #   and body to {"model":"video-01","prompt":"{{#node-start.prompt#}}"}
+    # ─────────────────────────────────────────────────────────────────────────
+    - description: Bearer token for the video generation API (Kling, Minimax, etc.)
+      id: env-video-api-key
+      name: VIDEO_API_KEY
+      value: ''
+      value_type: secret
+  features:
+    file_upload:
+      enabled: false
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    text_to_speech:
+      enabled: false
+  graph:
+    edges:
+
+      - data:
+          isInIteration: false
+          sourceType: start
+          targetType: http-request
+        id: edge-start-submit
+        source: node-start
+        sourceHandle: source
+        target: node-submit
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: http-request
+          targetType: code
+        id: edge-submit-extract
+        source: node-submit
+        sourceHandle: source
+        target: node-extract-task-id
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: code
+          targetType: code
+        id: edge-extract-wait1
+        source: node-extract-task-id
+        sourceHandle: source
+        target: node-wait-1
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: code
+          targetType: http-request
+        id: edge-wait1-poll1
+        source: node-wait-1
+        sourceHandle: source
+        target: node-poll-1
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: http-request
+          targetType: code
+        id: edge-poll1-wait2
+        source: node-poll-1
+        sourceHandle: source
+        target: node-wait-2
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: code
+          targetType: http-request
+        id: edge-wait2-poll2
+        source: node-wait-2
+        sourceHandle: source
+        target: node-poll-2
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: http-request
+          targetType: code
+        id: edge-poll2-parse
+        source: node-poll-2
+        sourceHandle: source
+        target: node-parse
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+      - data:
+          isInIteration: false
+          sourceType: code
+          targetType: end
+        id: edge-parse-end
+        source: node-parse
+        sourceHandle: source
+        target: node-end
+        targetHandle: target
+        type: custom
+        zIndex: 0
+
+    nodes:
+
+      # ════════════════════════════════════════════════════════════════════════
+      # START — accepts the video_prompt string built by n8n
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          desc: Input from n8n: the full video_prompt string
+          selected: false
+          title: Start
+          type: start
+          variables:
+            - label: prompt
+              max_length: 2000
+              required: true
+              type: text-input
+              variable: prompt
+        height: 90
+        id: node-start
+        position:
+          x: 30
+          y: 300
+        positionAbsolute:
+          x: 30
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # SUBMIT — POST to video generation API, receive task_id
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          authorization:
+            config:
+              header: Authorization
+              token: '{{ENV.VIDEO_API_KEY}}'
+              type: bearer
+            type: bearer
+          body:
+            data: '{"prompt":"{{#node-start.prompt#}}","negative_prompt":"human faces,
+              text watermark","duration":5,"aspect_ratio":"9:16","mode":"std","cfg_scale":0.5}'
+            type: json
+          desc: Submits the text-to-video request; Kling returns a task_id immediately
+          headers: 'Content-Type: application/json'
+          method: post
+          params: ''
+          selected: false
+          timeout:
+            connect: 30
+            max_connect_retries: 2
+            max_retries: 2
+            read: 30
+            write: 30
+          title: Submit Video Request
+          type: http-request
+          url: https://api.klingai.com/v1/videos/text2video
+          variables: []
+        height: 54
+        id: node-submit
+        position:
+          x: 334
+          y: 300
+        positionAbsolute:
+          x: 334
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # EXTRACT TASK ID
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          code: |
+            def main(submission):
+                data = submission.get('data', {}) if submission else {}
+                # Kling puts task_id at data.task_id
+                # Minimax puts it at task_id (top-level)
+                task_id = (data.get('task_id')
+                           or submission.get('task_id')
+                           or data.get('id')
+                           or '')
+                return {'task_id': task_id}
+          code_language: python3
+          desc: Pulls task_id out of the submission response; handles Kling and Minimax layouts
+          outputs:
+            task_id:
+              children: null
+              type: string
+          selected: false
+          title: Extract task_id
+          type: code
+          variables:
+            - value_selector:
+                - node-submit
+                - body
+              variable: submission
+        height: 54
+        id: node-extract-task-id
+        position:
+          x: 638
+          y: 300
+        positionAbsolute:
+          x: 638
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # WAIT #1 — 35 seconds for initial generation
+      # time.sleep is available in Dify's Python 3 sandbox
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          code: |
+            import time
+            def main(task_id):
+                time.sleep(35)
+                return {'task_id': task_id}
+          code_language: python3
+          desc: Pauses 35 s for the video generator to do most of its work before first poll
+          outputs:
+            task_id:
+              children: null
+              type: string
+          selected: false
+          title: Wait 35s
+          type: code
+          variables:
+            - value_selector:
+                - node-extract-task-id
+                - task_id
+              variable: task_id
+        height: 54
+        id: node-wait-1
+        position:
+          x: 942
+          y: 300
+        positionAbsolute:
+          x: 942
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # POLL #1 — check if generation is complete
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          authorization:
+            config:
+              header: Authorization
+              token: '{{ENV.VIDEO_API_KEY}}'
+              type: bearer
+            type: bearer
+          body:
+            data: ''
+            type: none
+          desc: First status check at ~35s
+          headers: ''
+          method: get
+          params: ''
+          selected: false
+          timeout:
+            connect: 30
+            max_connect_retries: 2
+            max_retries: 2
+            read: 30
+            write: 30
+          title: Poll Status #1
+          type: http-request
+          url: 'https://api.klingai.com/v1/videos/{{#node-wait-1.task_id#}}'
+          variables: []
+        height: 54
+        id: node-poll-1
+        position:
+          x: 1246
+          y: 300
+        positionAbsolute:
+          x: 1246
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # WAIT #2 — 30 more seconds only if poll #1 is not yet done
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          code: |
+            import time
+            def main(task_id, poll1):
+                data = poll1.get('data', {}) if poll1 else {}
+                status = (data.get('task_status')
+                          or data.get('status')
+                          or '').lower()
+                done_statuses = {'succeed', 'success', 'completed', 'finished'}
+                if status not in done_statuses:
+                    time.sleep(30)
+                return {'task_id': task_id}
+          code_language: python3
+          desc: Skips the 30s sleep if poll #1 already returned a completed status
+          outputs:
+            task_id:
+              children: null
+              type: string
+          selected: false
+          title: Wait 30s (if needed)
+          type: code
+          variables:
+            - value_selector:
+                - node-extract-task-id
+                - task_id
+              variable: task_id
+            - value_selector:
+                - node-poll-1
+                - body
+              variable: poll1
+        height: 54
+        id: node-wait-2
+        position:
+          x: 1550
+          y: 300
+        positionAbsolute:
+          x: 1550
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # POLL #2 — final check at ~65 s
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          authorization:
+            config:
+              header: Authorization
+              token: '{{ENV.VIDEO_API_KEY}}'
+              type: bearer
+            type: bearer
+          body:
+            data: ''
+            type: none
+          desc: Second (final) status check at ~65s
+          headers: ''
+          method: get
+          params: ''
+          selected: false
+          timeout:
+            connect: 30
+            max_connect_retries: 2
+            max_retries: 2
+            read: 30
+            write: 30
+          title: Poll Status #2
+          type: http-request
+          url: 'https://api.klingai.com/v1/videos/{{#node-wait-2.task_id#}}'
+          variables: []
+        height: 54
+        id: node-poll-2
+        position:
+          x: 1854
+          y: 300
+        positionAbsolute:
+          x: 1854
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # PARSE — extract video URL from whichever poll succeeded
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          code: |
+            def extract_url(resp):
+                if not resp:
+                    return ''
+                data = resp.get('data', {})
+                # Kling: data.works[0].resource.resource
+                works = data.get('works', [])
+                if works:
+                    url = works[0].get('resource', {}).get('resource', '')
+                    if url:
+                        return url
+                # Minimax / generic fallbacks
+                return (data.get('video_url')
+                        or data.get('file_url')
+                        or data.get('url')
+                        or resp.get('video_url')
+                        or '')
+
+            def main(poll1, poll2):
+                # Prefer the later poll; fall back to the earlier one
+                url = extract_url(poll2) or extract_url(poll1)
+                return {'video_url': url}
+          code_language: python3
+          desc: Extracts video_url from Kling (works[].resource.resource) or generic providers
+          outputs:
+            video_url:
+              children: null
+              type: string
+          selected: false
+          title: Parse Video URL
+          type: code
+          variables:
+            - value_selector:
+                - node-poll-1
+                - body
+              variable: poll1
+            - value_selector:
+                - node-poll-2
+                - body
+              variable: poll2
+        height: 54
+        id: node-parse
+        position:
+          x: 2158
+          y: 300
+        positionAbsolute:
+          x: 2158
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+      # ════════════════════════════════════════════════════════════════════════
+      # END — returns video_url consumed by n8n's parse-video-response node
+      # ════════════════════════════════════════════════════════════════════════
+      - data:
+          desc: Returns the generated video URL to the n8n caller
+          outputs:
+            - value_selector:
+                - node-parse
+                - video_url
+              variable: video_url
+          selected: false
+          title: End
+          type: end
+        height: 54
+        id: node-end
+        position:
+          x: 2462
+          y: 300
+        positionAbsolute:
+          x: 2462
+          y: 300
+        selected: false
+        sourcePosition: right
+        targetPosition: left
+        type: custom
+        width: 244
+
+  variables: []
