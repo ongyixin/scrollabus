@@ -57,7 +57,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const items     = $input.all();\nconst buildData = $('Build image prompt').all();\n\nconst results = [];\nfor (let i = 0; i < items.length; i++) {\n  const response  = items[i].json;\n  const prevData  = buildData[i].json;\n  const part      = response?.candidates?.[0]?.content?.parts?.[0];\n  const b64       = part?.inlineData?.data ?? null;\n  const mimeType  = part?.inlineData?.mimeType ?? 'image/png';\n\n  if (!b64) continue;\n\n  results.push({\n    json: {\n      ...prevData,\n      image_b64: b64,\n      mime_type: mimeType,\n      file_path: `${prevData.material_id}/${prevData.persona_slug}-${prevData.chunk_index}-image.png`,\n    },\n    binary: {\n      image_b64: { data: b64, mimeType: mimeType, fileName: `${prevData.persona_slug}-${prevData.chunk_index}-image.png` }\n    }\n  });\n}\nreturn results;"
+        "jsCode": "const items     = $input.all();\nconst buildData = $('Build image prompt').all();\n\nconst results = [];\nfor (let i = 0; i < items.length; i++) {\n  const response  = items[i].json;\n  const prevData  = buildData[i].json;\n  const part      = response?.candidates?.[0]?.content?.parts?.[0];\n  const b64       = part?.inlineData?.data ?? null;\n  const mimeType  = part?.inlineData?.mimeType ?? 'image/png';\n\n  if (!b64) continue;\n\n  results.push({\n    json: {\n      ...prevData,\n      mime_type: mimeType,\n      file_path: `${prevData.material_id}/${prevData.persona_slug}-${prevData.chunk_index}-image.png`,\n    },\n    binary: {\n      image_b64: { data: b64, mimeType: mimeType, fileName: `${prevData.persona_slug}-${prevData.chunk_index}-image.png` }\n    }\n  });\n}\nreturn results;"
       },
       "id": "extract-image",
       "name": "Extract image data",

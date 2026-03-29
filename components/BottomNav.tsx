@@ -137,7 +137,7 @@ export function BottomNav() {
               {isActive && (
                 <motion.div
                   layoutId="nav-dot"
-                  className="absolute -top-0.5 left-1/2 -translate-x-1/2 w-5 h-1 rounded-full bg-charcoal"
+                  className="absolute -top-0.5 inset-x-0 mx-auto w-5 h-1 rounded-full bg-charcoal"
                   style={{
                     boxShadow: "0 0 6px rgba(45,41,38,0.4)",
                   }}

@@ -52,39 +52,78 @@ export async function POST(req: NextRequest) {
     text: `User uploaded study material titled "${title}" (${source_type}). Topic preview: ${raw_text.slice(0, 200)}`,
   }).catch(() => {});
 
-  // Fire-and-forget: trigger n8n pipeline (don't await to keep response fast)
-  triggerMaterialToPost({
-    material_id: material.id,
-    raw_text,
-    title,
-    enabled_personas: enabledPersonas,
-    enable_av_output: enableAvOutput,
-  }).catch((err) => {
-    console.error("[n8n] Material-to-post trigger failed:", err);
-  });
-
-  // Fire-and-forget: generate quiz questions from the material using Gemini
+  // Fire-and-forget: generate persona-voiced quizzes from the material
   generateAndSaveQuizzes({
     material_id: material.id,
     raw_text,
     title,
+    enabled_personas: enabledPersonas,
   }).catch((err) => {
     console.error("[quiz] Quiz generation failed:", err);
   });
 
-  // Fire-and-forget: trigger Dify teaching workflow to generate a memory-aware teaching plan
-  triggerTeachingWorkflow({
-    eventType: "material_uploaded",
-    userId: user.id,
-    payload: {
+  // Kick off Dify teaching plan + n8n content pipeline concurrently.
+  // We await Dify here (with a short timeout) so we can pass its pedagogical
+  // signals (emphasis, priority_personas) directly into the n8n prompt — closing
+  // the loop between memory-aware teaching analysis and content generation.
+  void (async () => {
+    let emphasis: string | undefined;
+    let priorityPersonas: string[] | undefined;
+
+    try {
+      const difyResult = await Promise.race([
+        triggerTeachingWorkflow({
+          eventType: "material_uploaded",
+          userId: user.id,
+          payload: {
+            material_id: material.id,
+            title,
+            source_type,
+            topic_preview: raw_text.slice(0, 500),
+          },
+        }),
+        // 10-second ceiling — don't block n8n if Dify is slow
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
+      ]);
+
+      if (difyResult && typeof difyResult === "object" && "success" in difyResult && difyResult.success) {
+        const out = (difyResult as { output?: Record<string, unknown> }).output ?? {};
+        emphasis = typeof out.emphasis === "string" ? out.emphasis : undefined;
+        const rawPriority = out.priority_personas;
+        if (Array.isArray(rawPriority) && rawPriority.every((p) => typeof p === "string")) {
+          priorityPersonas = rawPriority as string[];
+        }
+
+        // Persist the teaching plan back to the material row for later use
+        const teachingPlan = {
+          priority_personas: priorityPersonas,
+          emphasis,
+          first_review_concept: typeof out.first_review_concept === "string" ? out.first_review_concept : undefined,
+          quiz_topic: typeof out.quiz_topic === "string" ? out.quiz_topic : undefined,
+        };
+        const supabaseService = await createClient();
+        await supabaseService
+          .from("materials")
+          .update({ teaching_plan: teachingPlan })
+          .eq("id", material.id);
+      }
+    } catch (err) {
+      console.error("[dify] Teaching workflow failed:", err);
+    }
+
+    // Trigger n8n content pipeline with enriched context from the teaching plan
+    triggerMaterialToPost({
       material_id: material.id,
+      raw_text,
       title,
-      source_type,
-      topic_preview: raw_text.slice(0, 500),
-    },
-  }).catch((err) => {
-    console.error("[dify] Teaching workflow trigger failed:", err);
-  });
+      enabled_personas: enabledPersonas,
+      enable_av_output: enableAvOutput,
+      priority_personas: priorityPersonas,
+      emphasis,
+    }).catch((err) => {
+      console.error("[n8n] Material-to-post trigger failed:", err);
+    });
+  })();
 
   return NextResponse.json({ material_id: material.id, status: "processing" }, { status: 201 });
 }

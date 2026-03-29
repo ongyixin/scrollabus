@@ -6,12 +6,12 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { InterestsInput } from "@/components/InterestsInput";
 import { InterestsPills } from "@/components/InterestsPills";
-import { PERSONA_CONFIG } from "@/lib/constants";
 import { PersonaSprite } from "@/components/PersonaSprites";
 import { PersonaProfileSheet } from "@/components/PersonaProfileSheet";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { PersonaBadge } from "@/components/PersonaBadge";
-import type { Post } from "@/lib/types";
+import { CreatePersonaSheet } from "@/components/CreatePersonaSheet";
+import type { Post, Persona } from "@/lib/types";
 
 interface ProfileStats {
   materials: number;
@@ -86,19 +86,22 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const DEFAULT_SLUGS = ["lecture-bestie", "exam-gremlin", "problem-grinder", "doodle-prof", "meme-lord", "study-bard"];
   const [personaToggles, setPersonaToggles] = useState<string[]>(
-    initialProfile.enabled_personas ?? PERSONA_CONFIG.map((p) => p.slug)
+    initialProfile.enabled_personas ?? DEFAULT_SLUGS
   );
   const [personaSaving, setPersonaSaving] = useState(false);
   const [avOutput, setAvOutput] = useState(initialProfile.enable_av_output ?? true);
   const [avSaving, setAvSaving] = useState(false);
 
-  // Photon study companion
-  const [photonEnabled, setPhotonEnabled] = useState(false);
-  const [photonPhone, setPhotonPhone] = useState("");
-  const [photonSaving, setPhotonSaving] = useState(false);
-  const [photonError, setPhotonError] = useState<string | null>(null);
-  const [photonLoaded, setPhotonLoaded] = useState(false);
+  // Telegram study companion
+  const [telegramEnabled, setTelegramEnabled] = useState(false);
+  const [telegramLinked, setTelegramLinked] = useState(false);
+  const [telegramUsername, setTelegramUsername] = useState<string | null>(null);
+  const [telegramDeepLink, setTelegramDeepLink] = useState<string | null>(null);
+  const [telegramSaving, setTelegramSaving] = useState(false);
+  const [telegramError, setTelegramError] = useState<string | null>(null);
+  const [telegramLoaded, setTelegramLoaded] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -113,6 +116,19 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
   const [materialsDeleteError, setMaterialsDeleteError] = useState<string | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
+  // All personas (defaults + custom) — fetched from DB
+  const [allPersonas, setAllPersonas] = useState<Persona[]>([]);
+  const [personasLoading, setPersonasLoading] = useState(true);
+
+  // Create / edit persona sheet
+  const [createSheetOpen, setCreateSheetOpen] = useState(false);
+  const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
+
+  // Delete persona confirmation
+  const [deletingPersonaSlug, setDeletingPersonaSlug] = useState<string | null>(null);
+  const [personaDeleteError, setPersonaDeleteError] = useState<string | null>(null);
+  const [confirmDeletePersonaOpen, setConfirmDeletePersonaOpen] = useState(false);
+
   // Persona profile sheet
   const [activePersonaSlug, setActivePersonaSlug] = useState<string | null>(null);
 
@@ -120,6 +136,8 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
   const [likedExpanded, setLikedExpanded] = useState(false);
   const [likedPosts, setLikedPosts] = useState<Post[] | null>(null);
   const [likedLoading, setLikedLoading] = useState(false);
+  const [likeCount, setLikeCount] = useState(stats.likes);
+  const [unlikingIds, setUnlikingIds] = useState<Set<string>>(new Set());
 
 
   const [from, to] = getAvatarColors(profile.id);
@@ -227,42 +245,107 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
     }
   }
 
-  // Load Photon connection status on mount
+  // Load Telegram connection status on mount
   useEffect(() => {
-    fetch("/api/photon/connect")
-      .then((r) => r.ok ? r.json() : null)
+    fetch("/api/telegram/connect")
+      .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data) {
-          setPhotonEnabled(data.photon_enabled ?? false);
-          setPhotonPhone(data.phone_number ?? "");
+          setTelegramEnabled(data.telegram_enabled ?? false);
+          setTelegramLinked(data.telegram_linked ?? false);
+          setTelegramUsername(data.telegram_username ?? null);
+          setTelegramDeepLink(data.deep_link ?? null);
         }
-        setPhotonLoaded(true);
+        setTelegramLoaded(true);
       })
-      .catch(() => setPhotonLoaded(true));
+      .catch(() => setTelegramLoaded(true));
   }, []);
 
-  async function savePhotonSettings(nextEnabled: boolean, phone: string) {
-    setPhotonSaving(true);
-    setPhotonError(null);
+  // Load all personas from DB
+  useEffect(() => {
+    setPersonasLoading(true);
+    fetch("/api/personas")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.personas) {
+          setAllPersonas(data.personas);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setPersonasLoading(false));
+  }, []);
+
+  async function saveTelegramSettings(nextEnabled: boolean) {
+    setTelegramSaving(true);
+    setTelegramError(null);
     try {
-      const res = await fetch("/api/photon/connect", {
+      const res = await fetch("/api/telegram/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone_number: phone, enabled: nextEnabled }),
+        body: JSON.stringify({ enabled: nextEnabled }),
       });
       const json = await res.json();
       if (res.ok) {
-        setPhotonEnabled(json.photon_enabled ?? false);
-        setPhotonPhone(json.phone_number ?? "");
+        setTelegramEnabled(json.telegram_enabled ?? false);
+        setTelegramLinked(json.telegram_linked ?? false);
       } else {
-        setPhotonError(json.error ?? "Failed to save");
-        setPhotonEnabled(!nextEnabled); // revert toggle
+        setTelegramError(json.error ?? "Failed to save");
+        setTelegramEnabled(!nextEnabled);
       }
     } catch {
-      setPhotonError("Something went wrong. Please try again.");
-      setPhotonEnabled(!nextEnabled);
+      setTelegramError("Something went wrong. Please try again.");
+      setTelegramEnabled(!nextEnabled);
     } finally {
-      setPhotonSaving(false);
+      setTelegramSaving(false);
+    }
+  }
+
+  async function unlinkTelegram() {
+    setTelegramSaving(true);
+    setTelegramError(null);
+    try {
+      const res = await fetch("/api/telegram/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unlink: true }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setTelegramEnabled(false);
+        setTelegramLinked(false);
+        setTelegramUsername(null);
+        // Refetch to get a new deep link
+        const connectRes = await fetch("/api/telegram/connect");
+        if (connectRes.ok) {
+          const connectData = await connectRes.json();
+          setTelegramDeepLink(connectData.deep_link ?? null);
+        }
+      } else {
+        setTelegramError(json.error ?? "Failed to unlink");
+      }
+    } catch {
+      setTelegramError("Something went wrong. Please try again.");
+    } finally {
+      setTelegramSaving(false);
+    }
+  }
+
+  async function deleteCustomPersona() {
+    if (!deletingPersonaSlug) return;
+    try {
+      const res = await fetch(`/api/personas/${deletingPersonaSlug}`, { method: "DELETE" });
+      if (res.ok) {
+        setAllPersonas((prev) => prev.filter((p) => p.slug !== deletingPersonaSlug));
+        setPersonaToggles((prev) => prev.filter((s) => s !== deletingPersonaSlug));
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setPersonaDeleteError(json.error ?? "Failed to delete persona.");
+      }
+    } catch {
+      setPersonaDeleteError("Something went wrong. Please try again.");
+    } finally {
+      setDeletingPersonaSlug(null);
+      setConfirmDeletePersonaOpen(false);
     }
   }
 
@@ -280,6 +363,27 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
       } finally {
         setLikedLoading(false);
       }
+    }
+  }
+
+  async function unlikePost(postId: string) {
+    setUnlikingIds((prev) => new Set(prev).add(postId));
+    try {
+      const res = await fetch("/api/likes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ post_id: postId }),
+      });
+      if (res.ok) {
+        setLikedPosts((prev) => (prev ?? []).filter((p) => p.id !== postId));
+        setLikeCount((prev) => Math.max(0, prev - 1));
+      }
+    } finally {
+      setUnlikingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(postId);
+        return next;
+      });
     }
   }
 
@@ -499,7 +603,7 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
       </div>
 
       {/* Liked Posts section */}
-      {stats.likes > 0 && (
+      {likeCount > 0 && (
         <div className="border-b border-warm-200">
           <button
             type="button"
@@ -509,7 +613,7 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
             <div className="flex items-center gap-2">
               <p className="font-mono text-xs text-charcoal/50 uppercase tracking-wide">Liked Posts</p>
               <span className="font-mono text-[10px] text-charcoal/30 bg-warm-200 rounded-full px-1.5 py-0.5">
-                {stats.likes}
+                {likeCount}
               </span>
             </div>
             <svg
@@ -548,11 +652,30 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
                     <div className="space-y-2">
                       {(likedPosts ?? []).slice(0, 10).map((p) => (
                         <div key={p.id} className="bg-white rounded-2xl px-4 py-3 border border-warm-100">
-                          {p.persona && <PersonaBadge persona={p.persona} size="sm" />}
-                          {p.title && (
-                            <p className="font-sans font-semibold text-sm text-charcoal mt-1.5 leading-snug">{p.title}</p>
-                          )}
-                          <p className="font-sans text-xs text-charcoal/60 mt-1 line-clamp-2">{p.body}</p>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              {p.persona && <PersonaBadge persona={p.persona} size="sm" />}
+                              {p.title && (
+                                <p className="font-sans font-semibold text-sm text-charcoal mt-1.5 leading-snug">{p.title}</p>
+                              )}
+                              <p className="font-sans text-xs text-charcoal/60 mt-1 line-clamp-2">{p.body}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => unlikePost(p.id)}
+                              disabled={unlikingIds.has(p.id)}
+                              aria-label="Unlike post"
+                              className="shrink-0 mt-0.5 text-rose-400 hover:text-charcoal/30 transition-colors disabled:opacity-40"
+                            >
+                              {unlikingIds.has(p.id) ? (
+                                <span className="w-4 h-4 rounded-full border-2 border-rose-300 border-t-transparent animate-spin block" />
+                              ) : (
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                  <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
                         </div>
                       ))}
                       {(likedPosts ?? []).length > 10 && (
@@ -751,75 +874,125 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
         <p className="font-sans text-xs text-charcoal/40 mb-4">
           Choose which personas generate content from your materials.
         </p>
-        <div className="space-y-3">
-          {PERSONA_CONFIG.map((p) => {
-            const enabled = personaToggles.includes(p.slug);
-            const isLastEnabled = enabled && personaToggles.length === 1;
-            return (
-              <div key={p.slug} className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="shrink-0 w-9 h-9 flex items-center justify-center">
-                    <PersonaSprite slug={p.slug} size={36} />
-                  </div>
-                  <div className="flex items-center gap-1 min-w-0">
-                    <button
-                      type="button"
-                      onClick={() => setActivePersonaSlug(p.slug)}
-                      className="font-sans text-sm font-semibold text-charcoal leading-tight hover:text-lavender-deep transition-colors text-left"
-                    >
-                      {p.name}
-                    </button>
-                    <span className="group/tooltip relative inline-flex shrink-0">
+
+        {personasLoading ? (
+          <div className="flex justify-center py-4">
+            <div className="w-5 h-5 border-2 border-lavender/40 border-t-lavender rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {allPersonas.map((p) => {
+              const enabled = personaToggles.includes(p.slug);
+              const isLastEnabled = enabled && personaToggles.length === 1;
+              const isOwned = p.created_by === profile.id;
+              return (
+                <div key={p.slug} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="shrink-0 w-9 h-9 flex items-center justify-center">
+                      <PersonaSprite
+                        slug={p.slug}
+                        size={36}
+                        emoji={p.emoji}
+                        accentColor={p.accent_color}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1 min-w-0 flex-1">
                       <button
                         type="button"
-                        className="rounded-full p-0.5 text-charcoal/35 hover:text-charcoal/55 focus:outline-none focus-visible:ring-2 focus-visible:ring-lavender focus-visible:ring-offset-1"
-                        aria-label={`About ${p.name}`}
-                        aria-describedby={`persona-tip-${p.slug}`}
+                        onClick={() => setActivePersonaSlug(p.slug)}
+                        className="font-sans text-sm font-semibold text-charcoal leading-tight hover:text-lavender-deep transition-colors text-left truncate"
                       >
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                          <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.25" />
-                          <path
-                            d="M6.3 5.1c0-.45.35-.8.85-.8s.85.35.85.85c0 .55-.25.85-.65 1.15-.45.35-.75.65-.75 1.1V8"
-                            stroke="currentColor"
-                            strokeWidth="1.1"
-                            strokeLinecap="round"
-                          />
-                          <circle cx="7" cy="9.85" r="0.45" fill="currentColor" />
-                        </svg>
+                        {p.name}
                       </button>
-                      <span id={`persona-tip-${p.slug}`} className="sr-only">
-                        {p.tooltip}
-                      </span>
-                      <span
-                        role="presentation"
-                        aria-hidden="true"
-                        className="pointer-events-none invisible absolute left-1/2 top-full z-30 mt-1.5 w-[min(18rem,calc(100vw-3rem))] -translate-x-1/2 rounded-xl border border-warm-200 bg-white px-3 py-2.5 text-left font-sans text-sm leading-snug text-charcoal/85 shadow-lg opacity-0 transition-opacity duration-150 group-hover/tooltip:visible group-hover/tooltip:opacity-100 group-focus-within/tooltip:visible group-focus-within/tooltip:opacity-100"
-                      >
-                        {p.tooltip}
-                      </span>
-                    </span>
+                      {isOwned && (
+                        <div className="flex items-center gap-1 shrink-0 ml-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingPersona(p);
+                              setCreateSheetOpen(true);
+                            }}
+                            className="text-charcoal/35 hover:text-charcoal/60 transition-colors p-0.5 rounded"
+                            aria-label={`Edit ${p.name}`}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeletingPersonaSlug(p.slug);
+                              setConfirmDeletePersonaOpen(true);
+                            }}
+                            className="text-charcoal/35 hover:text-cherry transition-colors p-0.5 rounded"
+                            aria-label={`Delete ${p.name}`}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                              <path d="M10 11v6M14 11v6M9 6V4h6v2" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={enabled}
-                  disabled={isLastEnabled}
-                  onClick={() => togglePersona(p.slug)}
-                  className={`relative w-11 h-6 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-lavender disabled:opacity-40 ${
-                    enabled ? "bg-charcoal" : "bg-warm-300"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
-                      enabled ? "translate-x-5" : "translate-x-0"
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    disabled={isLastEnabled}
+                    onClick={() => togglePersona(p.slug)}
+                    className={`relative w-11 h-6 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-lavender disabled:opacity-40 shrink-0 ${
+                      enabled ? "bg-charcoal" : "bg-warm-300"
                     }`}
-                  />
-                </button>
-              </div>
-            );
-          })}
-        </div>
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
+                        enabled ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {personaDeleteError && (
+          <p className="font-sans text-xs text-cherry mt-3">{personaDeleteError}</p>
+        )}
+
+        {/* Create persona button */}
+        <button
+          type="button"
+          onClick={() => {
+            setEditingPersona(null);
+            setCreateSheetOpen(true);
+          }}
+          className="mt-4 w-full relative flex items-center justify-center gap-2.5 rounded-2xl py-3.5 font-sans text-sm font-bold text-white overflow-hidden group active:scale-95 transition-transform"
+          style={{
+            background: "linear-gradient(135deg, #a78bfa 0%, #818cf8 40%, #c084fc 100%)",
+            boxShadow: "0 4px 16px rgba(139, 92, 246, 0.35)",
+          }}
+        >
+          {/* shimmer sweep */}
+          <span className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+
+          {/* sparkle left */}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="opacity-90 group-hover:rotate-12 transition-transform duration-300">
+            <path d="M12 2l1.8 5.4L19.2 6l-4.2 3.6L17.1 15 12 11.8 6.9 15l2.1-5.4L4.8 6l5.4 1.4z" />
+          </svg>
+
+          Create a persona
+
+          {/* sparkle right */}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" className="opacity-70 group-hover:-rotate-12 transition-transform duration-300">
+            <path d="M12 2l1.8 5.4L19.2 6l-4.2 3.6L17.1 15 12 11.8 6.9 15l2.1-5.4L4.8 6l5.4 1.4z" />
+          </svg>
+        </button>
       </div>
 
       {/* Output formats section */}
@@ -865,106 +1038,103 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
         </div>
       </div>
 
-      {/* Study Companion (Photon) section */}
+      {/* Study Companion (Telegram) section */}
       <div className="px-5 py-5 border-b border-warm-200">
         <div className="flex items-center justify-between mb-1">
           <p className="font-mono text-xs text-charcoal/50 uppercase tracking-wide">Study Companion</p>
-          {photonSaving && (
+          {telegramSaving && (
             <div className="w-3.5 h-3.5 border-2 border-cobalt border-t-transparent rounded-full animate-spin" />
           )}
         </div>
         <p className="font-sans text-xs text-charcoal/40 mb-4">
-          Get daily study nudges, quiz reminders, and on-demand help over iMessage or SMS.
+          Get daily study nudges, quiz reminders, and on-demand help via Telegram.
         </p>
 
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-2xl bg-cobalt/10 flex items-center justify-center shrink-0">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-cobalt">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            <div className="w-9 h-9 rounded-2xl bg-[#229ED9]/10 flex items-center justify-center shrink-0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="text-[#229ED9]">
+                <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
               </svg>
             </div>
             <div>
-              <p className="font-sans text-sm font-semibold text-charcoal leading-tight">iMessage / SMS</p>
+              <p className="font-sans text-sm font-semibold text-charcoal leading-tight">Telegram</p>
               <p className="font-sans text-xs text-charcoal/40 mt-0.5">
-                {photonEnabled ? "Active — nudges enabled" : "Off — tap to enable"}
+                {telegramLinked
+                  ? telegramEnabled
+                    ? `Active${telegramUsername ? ` — @${telegramUsername}` : ""}`
+                    : "Linked — nudges paused"
+                  : "Not connected"}
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={photonEnabled}
-            disabled={photonSaving || !photonLoaded}
-            onClick={() => {
-              const next = !photonEnabled;
-              setPhotonEnabled(next);
-              if (next && !photonPhone.trim()) {
-                // Show phone input — don't save yet, wait for phone entry
-                setPhotonError("Enter your phone number below to enable nudges.");
-              } else {
-                savePhotonSettings(next, photonPhone);
-              }
-            }}
-            className={`relative w-11 h-6 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cobalt disabled:opacity-40 ${
-              photonEnabled ? "bg-cobalt" : "bg-warm-300"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
-                photonEnabled ? "translate-x-5" : "translate-x-0"
+          {telegramLinked && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={telegramEnabled}
+              disabled={telegramSaving || !telegramLoaded}
+              onClick={() => {
+                const next = !telegramEnabled;
+                setTelegramEnabled(next);
+                saveTelegramSettings(next);
+              }}
+              className={`relative w-11 h-6 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#229ED9] disabled:opacity-40 ${
+                telegramEnabled ? "bg-[#229ED9]" : "bg-warm-300"
               }`}
-            />
-          </button>
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
+                  telegramEnabled ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          )}
         </div>
 
-        {/* Phone number input — show when toggled on or already has a number */}
-        {(photonEnabled || photonPhone) && (
-          <div className="space-y-2">
-            <label
-              htmlFor="photon-phone"
-              className="block text-xs font-sans font-semibold text-charcoal/50 uppercase tracking-wide"
+        {!telegramLinked && telegramDeepLink && (
+          <a
+            href={telegramDeepLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full py-3 bg-[#229ED9] text-white font-sans text-sm font-semibold rounded-2xl hover:bg-[#1d8abf] transition-colors active:scale-95"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-white">
+              <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+            </svg>
+            Connect Telegram Bot
+          </a>
+        )}
+
+        {!telegramLinked && !telegramDeepLink && telegramLoaded && (
+          <p className="font-sans text-xs text-charcoal/40">
+            Telegram bot is not configured yet. Ask your admin to set TELEGRAM_BOT_TOKEN.
+          </p>
+        )}
+
+        {telegramLinked && (
+          <div className="space-y-3">
+            {telegramEnabled && (
+              <div className="bg-[#229ED9]/8 rounded-2xl px-4 py-3">
+                <p className="font-sans text-xs text-[#229ED9] font-semibold">Study companion active</p>
+                <p className="font-sans text-xs text-charcoal/50 mt-0.5">
+                  Send &quot;quiz me&quot;, &quot;explain simpler&quot;, or &quot;recap&quot; to the bot anytime.
+                </p>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={unlinkTelegram}
+              disabled={telegramSaving}
+              className="w-full text-xs font-sans text-charcoal/40 hover:text-cherry transition-colors py-1"
             >
-              Phone number
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="photon-phone"
-                type="tel"
-                value={photonPhone}
-                onChange={(e) => {
-                  setPhotonPhone(e.target.value);
-                  setPhotonError(null);
-                }}
-                placeholder="+1 (555) 000-0000"
-                className="flex-1 bg-warm-50 rounded-xl px-4 py-2.5 text-sm font-sans text-charcoal placeholder:text-charcoal/30 focus:outline-none focus:ring-2 focus:ring-cobalt/50 border border-warm-200"
-              />
-              <button
-                type="button"
-                disabled={photonSaving || !photonPhone.trim()}
-                onClick={() => savePhotonSettings(photonEnabled, photonPhone)}
-                className="px-4 py-2.5 bg-cobalt text-white font-sans text-sm font-semibold rounded-xl disabled:opacity-40 hover:bg-cobalt/80 transition-colors active:scale-95"
-              >
-                Save
-              </button>
-            </div>
-            <p className="font-sans text-[11px] text-charcoal/40">
-              International format recommended, e.g. +1 555 000 0000
-            </p>
+              Disconnect Telegram
+            </button>
           </div>
         )}
 
-        {photonError && (
-          <p className="font-sans text-xs text-cherry mt-2">{photonError}</p>
-        )}
-
-        {photonEnabled && photonPhone && !photonError && (
-          <div className="mt-3 bg-cobalt/8 rounded-2xl px-4 py-3">
-            <p className="font-sans text-xs text-cobalt font-semibold">Study companion active</p>
-            <p className="font-sans text-xs text-charcoal/50 mt-0.5">
-              Reply &quot;quiz me&quot;, &quot;explain simpler&quot;, or &quot;recap&quot; to any nudge.
-            </p>
-          </div>
+        {telegramError && (
+          <p className="font-sans text-xs text-cherry mt-2">{telegramError}</p>
         )}
       </div>
 
@@ -1109,6 +1279,47 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
       <PersonaProfileSheet
         slug={activePersonaSlug}
         onClose={() => setActivePersonaSlug(null)}
+      />
+
+      {/* Create / edit persona sheet */}
+      <CreatePersonaSheet
+        open={createSheetOpen}
+        onClose={() => {
+          setCreateSheetOpen(false);
+          setEditingPersona(null);
+        }}
+        editingPersona={editingPersona}
+        onCreated={(persona) => {
+          if (editingPersona) {
+            setAllPersonas((prev) =>
+              prev.map((p) => (p.slug === persona.slug ? persona : p))
+            );
+          } else {
+            setAllPersonas((prev) => [...prev, persona]);
+            setPersonaToggles((prev) => [...prev, persona.slug]);
+            // Persist the newly enabled custom persona
+            fetch("/api/profile", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ enabled_personas: [...personaToggles, persona.slug] }),
+            }).catch(() => {});
+          }
+        }}
+      />
+
+      {/* Delete persona confirmation */}
+      <ConfirmSheet
+        open={confirmDeletePersonaOpen}
+        title="Delete persona?"
+        description="This will permanently delete your custom persona. Any existing posts generated by this persona will remain. This cannot be undone."
+        confirmLabel="Delete persona"
+        onConfirm={deleteCustomPersona}
+        onCancel={() => {
+          setConfirmDeletePersonaOpen(false);
+          setDeletingPersonaSlug(null);
+          setPersonaDeleteError(null);
+        }}
+        loading={false}
       />
     </div>
   );

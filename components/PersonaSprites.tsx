@@ -116,43 +116,44 @@ export function ProblemGrinderSprite({ size = 44 }: { size?: number }) {
       style={{ filter: "drop-shadow(0 2px 6px rgba(157,190,138,0.5))" }}
     >
       <GlowFilter id="glow-grinder" color="#9DBE8A" />
-      {/* Shirt — drawn first, head sits on top */}
-      <path d="M5 27 L5 39 Q5 42 8 42 L36 42 Q39 42 39 39 L39 27 Z" fill="#7BA068" />
-      {/* Collar V */}
-      <path d="M13 29 L22 25 L31 29" stroke="#5A7A48" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      {/* Tie body */}
-      <path d="M20.5 26 L19.5 37 L22 40.5 L24.5 37 L23.5 26 Z" fill="#2B4023" />
-      {/* Tie knot */}
-      <rect x="20" y="24" width="4" height="3.5" rx="0.8" fill="#1C2E18" />
 
-      {/* Head — rounded square, proportional to other sprites */}
-      <rect x="5" y="3" width="34" height="27" rx="9" fill="#9DBE8A" />
+      {/* Shirt — just a thin strip at the very bottom */}
+      <path d="M3 38 L3 44 L41 44 L41 38 Z" fill="#7BA068" />
+      {/* Collar V */}
+      <path d="M15 39 L22 35 L29 39" stroke="#5A7A48" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      {/* Tie body — small triangle below knot */}
+      <path d="M20.5 36.5 L19.8 42 L22 44 L24.2 42 L23.5 36.5 Z" fill="#2B4023" />
+      {/* Tie knot */}
+      <rect x="20" y="33.5" width="4" height="3.5" rx="0.8" fill="#1C2E18" />
+
+      {/* Head — tall square fills most of the viewport, sharp corners */}
+      <rect x="3" y="1" width="38" height="36" rx="4" fill="#9DBE8A" />
 
       {/* Eyebrows — furrowed inward for concentration */}
-      <path d="M8  11 Q14 8.5 19 10.5" stroke="#2B4023" strokeWidth="1.8" strokeLinecap="round" fill="none" />
-      <path d="M25 10.5 Q30 8.5 36 11"  stroke="#2B4023" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      <path d="M7 12 Q13 9.5 18 11.5"  stroke="#2B4023" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      <path d="M26 11.5 Q31 9.5 37 12" stroke="#2B4023" strokeWidth="1.8" strokeLinecap="round" fill="none" />
 
-      {/* Glasses — left lens with tint */}
-      <circle cx="14.5" cy="17" r="5.5" fill="white" fillOpacity="0.25" stroke="#2B4023" strokeWidth="2" />
+      {/* Glasses — left lens */}
+      <circle cx="15" cy="19" r="6" fill="white" fillOpacity="0.25" stroke="#2B4023" strokeWidth="2" />
       {/* Glasses — right lens */}
-      <circle cx="29.5" cy="17" r="5.5" fill="white" fillOpacity="0.25" stroke="#2B4023" strokeWidth="2" />
+      <circle cx="29" cy="19" r="6" fill="white" fillOpacity="0.25" stroke="#2B4023" strokeWidth="2" />
       {/* Bridge */}
-      <line x1="20" y1="17" x2="24"  y2="17" stroke="#2B4023" strokeWidth="1.8" />
+      <line x1="21" y1="19" x2="23" y2="19" stroke="#2B4023" strokeWidth="1.8" />
       {/* Arms */}
-      <line x1="5"  y1="17" x2="9"   y2="17" stroke="#2B4023" strokeWidth="1.8" />
-      <line x1="35" y1="17" x2="39"  y2="17" stroke="#2B4023" strokeWidth="1.8" />
-      {/* Pupils — looking slightly up */}
-      <circle cx="14.5" cy="16.5" r="2.2" fill="#2B4023" />
-      <circle cx="29.5" cy="16.5" r="2.2" fill="#2B4023" />
+      <line x1="3"  y1="19" x2="9"  y2="19" stroke="#2B4023" strokeWidth="1.8" />
+      <line x1="35" y1="19" x2="41" y2="19" stroke="#2B4023" strokeWidth="1.8" />
+      {/* Pupils */}
+      <circle cx="15" cy="18.5" r="2.4" fill="#2B4023" />
+      <circle cx="29" cy="18.5" r="2.4" fill="#2B4023" />
 
       {/* Focused mouth */}
-      <path d="M14 25 Q22 28 30 25" stroke="#2B4023" strokeWidth="2" strokeLinecap="round" fill="none" />
+      <path d="M13 29 Q22 33 31 29" stroke="#2B4023" strokeWidth="2" strokeLinecap="round" fill="none" />
 
-      {/* Hash mark accent — top-right */}
-      <line x1="32" y1="6"  x2="32" y2="12" stroke="#2B4023" strokeWidth="1.3" opacity="0.35" />
-      <line x1="35" y1="6"  x2="35" y2="12" stroke="#2B4023" strokeWidth="1.3" opacity="0.35" />
-      <line x1="30.5" y1="8.5" x2="36.5" y2="8.5" stroke="#2B4023" strokeWidth="1.3" opacity="0.35" />
-      <line x1="30.5" y1="11"  x2="36.5" y2="11"  stroke="#2B4023" strokeWidth="1.3" opacity="0.35" />
+      {/* Hash mark accent — top-right corner */}
+      <line x1="33" y1="5"  x2="33" y2="11" stroke="#2B4023" strokeWidth="1.3" opacity="0.35" />
+      <line x1="36" y1="5"  x2="36" y2="11" stroke="#2B4023" strokeWidth="1.3" opacity="0.35" />
+      <line x1="31.5" y1="7.5" x2="37.5" y2="7.5" stroke="#2B4023" strokeWidth="1.3" opacity="0.35" />
+      <line x1="31.5" y1="10"  x2="37.5" y2="10"  stroke="#2B4023" strokeWidth="1.3" opacity="0.35" />
     </svg>
   );
 }
@@ -257,16 +258,49 @@ export function StudyBardSprite({ size = 44 }: { size?: number }) {
 }
 
 /** Renders the correct persona sprite by slug, falls back to a plain circle. */
-export function PersonaSprite({ slug, size = 44 }: { slug: string; size?: number }) {
+export function PersonaSprite({
+  slug,
+  size = 44,
+  emoji,
+  accentColor,
+}: {
+  slug: string;
+  size?: number;
+  /** Emoji to display for custom personas (no built-in sprite) */
+  emoji?: string;
+  /** Accent color for the fallback circle background */
+  accentColor?: string;
+}) {
   if (slug === "lecture-bestie")  return <LectureBestieSprite  size={size} />;
   if (slug === "exam-gremlin")    return <ExamGremlinSprite    size={size} />;
   if (slug === "problem-grinder") return <ProblemGrinderSprite size={size} />;
   if (slug === "doodle-prof")     return <DoodleProfSprite     size={size} />;
   if (slug === "meme-lord")       return <MemeLordSprite       size={size} />;
   if (slug === "study-bard")      return <StudyBardSprite      size={size} />;
+
+  // Custom persona — render a colored circle with the emoji inside
+  const bg = accentColor ? accentColor + "40" : "#C9B8E8";
+  const fontSize = Math.round(size * 0.45);
   return (
-    <svg width={size} height={size} viewBox="0 0 44 44" fill="none">
-      <circle cx="22" cy="22" r="20" fill="#C9B8E8" />
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 44 44"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <circle cx="22" cy="22" r="20" fill={bg} />
+      {emoji && (
+        <text
+          x="22"
+          y="22"
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={fontSize}
+        >
+          {emoji}
+        </text>
+      )}
     </svg>
   );
 }

@@ -42,8 +42,20 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
   const [messages, setMessages] = useState<DmMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [dmError, setDmError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Persist DM messages to sessionStorage so they survive HMR and sheet close/reopen
+  const setAndPersistMessages = (updater: DmMessage[] | ((prev: DmMessage[]) => DmMessage[])) => {
+    setMessages((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (slug) {
+        try { sessionStorage.setItem(`dm_${slug}`, JSON.stringify(next)); } catch {}
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!slug) {
@@ -51,6 +63,7 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
       setPosts([]);
       setView("profile");
       setMessages([]);
+      setDmError(null);
       setSelectMode(false);
       setSelectedPosts(new Set());
       setDeletePostsError(null);
@@ -60,7 +73,14 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
     setData(null);
     setPosts([]);
     setView("profile");
-    setMessages([]);
+    // Restore persisted messages for this persona
+    try {
+      const saved = sessionStorage.getItem(`dm_${slug}`);
+      setMessages(saved ? JSON.parse(saved) : []);
+    } catch {
+      setMessages([]);
+    }
+    setDmError(null);
     setSelectMode(false);
     setSelectedPosts(new Set());
     setDeletePostsError(null);
@@ -132,8 +152,9 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
 
     const userMsg: DmMessage = { role: "user", content: input.trim() };
     const updated = [...messages, userMsg];
-    setMessages(updated);
+    setAndPersistMessages(updated);
     setInput("");
+    setDmError(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -148,17 +169,25 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
 
       if (res.ok) {
         const json = await res.json();
-        setMessages((prev) => [...prev, { role: "model", content: json.reply }]);
+        setAndPersistMessages((prev) => [...prev, { role: "model", content: json.reply }]);
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setDmError(json.error ?? "Something went wrong. Please try again.");
       }
+    } catch {
+      setDmError("Couldn't reach the server. Check your connection.");
     } finally {
       setIsSending(false);
     }
   }
 
   return (
-    <Drawer.Root open={!!slug} onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Drawer.Root open={!!slug} onOpenChange={(open) => { if (!open) onClose(); }} dismissible={view !== "dm"}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 bg-warm-black/30 backdrop-blur-sm z-40" />
+        <Drawer.Overlay
+          className="fixed inset-0 bg-warm-black/30 backdrop-blur-sm z-40"
+          onClick={view === "dm" ? (e) => e.stopPropagation() : undefined}
+        />
         <Drawer.Content
           className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-3xl bg-cream h-[90dvh] focus:outline-none overflow-hidden"
           aria-label="Persona profile"
@@ -485,6 +514,18 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
 
                     <div ref={bottomRef} />
                   </div>
+
+                  {/* Error banner */}
+                  {dmError && (
+                    <div className="shrink-0 mx-4 mb-2 px-3 py-2 rounded-xl bg-cherry/10 border border-cherry/20 flex items-center gap-2">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-cherry shrink-0">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                      <p className="font-sans text-xs text-cherry leading-snug">{dmError}</p>
+                    </div>
+                  )}
 
                   {/* Input */}
                   <form

@@ -38,6 +38,8 @@ export async function triggerMaterialToPost(payload: {
   title: string;
   enabled_personas?: string[];
   enable_av_output?: boolean;
+  priority_personas?: string[];
+  emphasis?: string;
 }) {
   return callWebhook(N8N_WEBHOOKS.materialToPost, payload);
 }

@@ -166,7 +166,7 @@ Configure GMI Cloud as an OpenAI-compatible model provider in Dify:
 
 ## Branch D: scheduled_followup
 
-**Goal:** Generate a personalized Photon study nudge for a student.
+**Goal:** Generate a personalized Telegram study nudge for a student.
 
 ### Nodes
 
@@ -175,7 +175,7 @@ Configure GMI Cloud as an OpenAI-compatible model provider in Dify:
    - `max_results: 10`, `recency_bias: 0.5`
 
 2. **LLM — Generate nudge** (GMI Cloud `deepseek-ai/DeepSeek-V3-0324`)
-   - System: `You are Scrollabus, a friendly AI study companion. Write a short, conversational iMessage/SMS message to nudge a student to study. Keep it under 160 characters. Be warm, specific, and include a call to action.`
+   - System: `You are Scrollabus, a friendly AI study companion. Write a short, conversational Telegram message to nudge a student to study. Keep it under 200 characters. Be warm, specific, and include a call to action.`
    - User prompt:
      ```
      Learner memory:
@@ -212,11 +212,11 @@ triggerTeachingWorkflow({
   payload: { weak_concepts: memories },
 });
 
-// For Photon nudges (cron job via /api/photon/cron)
+// For Telegram nudges (cron job via /api/telegram/cron)
 triggerTeachingWorkflow({
   eventType: "scheduled_followup",
   userId: user.id,
-  payload: { phone_number: profile.phone_number },
+  payload: { telegram_chat_id: profile.telegram_chat_id, display_name: profile.display_name },
 });
 ```
 

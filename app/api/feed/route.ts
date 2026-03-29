@@ -16,6 +16,19 @@ export async function GET(req: NextRequest) {
   const cursor = searchParams.get("cursor"); // JSON map of { [materialId]: lastCreatedAt|null } for home feed
   const materialId = searchParams.get("material_id");
   const personaSlug = searchParams.get("persona_slug"); // optional persona filter
+  const adaptiveMode = searchParams.get("mode") === "adaptive"; // bias feed toward high-affinity personas
+
+  // In adaptive mode, fetch persona affinity scores once and use them to rerank posts
+  // within each material bucket (more of what the student engages with, less filter bubble).
+  let personaAffinityMap: Map<string, number> = new Map();
+  if (adaptiveMode && !personaSlug) {
+    const { data: affinityRows } = await supabase.rpc("get_persona_affinity", { p_user_id: user.id });
+    if (affinityRows) {
+      for (const row of affinityRows as { persona_id: string; affinity_score: number }[]) {
+        personaAffinityMap.set(row.persona_id, row.affinity_score);
+      }
+    }
+  }
 
   // On fresh feed load (no cursor, no material filter), fire-and-forget memory recall
   // to surface weak/stale concepts as a study nudge (result is informational, non-blocking)
@@ -85,6 +98,19 @@ export async function GET(req: NextRequest) {
     return floors;
   }
 
+  // In adaptive mode, sort posts within a bucket by persona affinity score (desc),
+  // ensuring high-affinity personas appear first while preserving all posts.
+  // Posts from personas with no signal score 0 (new-user safe — sorts to end).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function sortByAffinity(posts: any[]): any[] {
+    if (personaAffinityMap.size === 0) return posts;
+    return [...posts].sort((a, b) => {
+      const scoreA = personaAffinityMap.get(a.persona?.id ?? "") ?? 0;
+      const scoreB = personaAffinityMap.get(b.persona?.id ?? "") ?? 0;
+      return scoreB - scoreA;
+    });
+  }
+
   // Round-robin across material buckets (largest/newest bucket first) so the
   // feed visually interleaves content from different upload sessions.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,6 +156,22 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ posts: annotated, nextCursor });
   }
+
+  // Surface pulse (community update) and reactive (fan demand) posts first —
+  // they are pinned to the top of the home feed to feel like "breaking" creator content.
+  // Pulse posts (daily community updates from all personas) → reactive (targeted remediation)
+  const { data: pinnedPosts } = await supabase
+    .from("posts")
+    .select(`
+      *,
+      persona:personas(*),
+      saves!left(user_id),
+      comment_count:comments(count)
+    `)
+    .in("source", ["reactive", "pulse"])
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: false })
+    .limit(4);
 
   // Fetch the user's most-recent materials (newest first) so we can weight
   // the feed toward recent uploads while still surfacing older ones.
@@ -233,7 +275,17 @@ export async function GET(req: NextRequest) {
   );
   const nextCursor = hasMore ? JSON.stringify(nextCursorObj) : null;
 
-  const annotatedBuckets = rawBuckets.map((bucket) => annotate(bucket, likedPostIds));
-  const resultPosts = interleaveRoundRobin(annotatedBuckets);
+  const annotatedBuckets = rawBuckets.map((bucket) => {
+    const sorted = adaptiveMode ? sortByAffinity(bucket) : bucket;
+    return annotate(sorted, likedPostIds);
+  });
+  const mainFeedPosts = interleaveRoundRobin(annotatedBuckets);
+
+  // Prepend pinned posts on the first page only (no cursor) so they stay at top
+  const pinnedAnnotated = !cursor && pinnedPosts
+    ? annotate(pinnedPosts, likedPostIds)
+    : [];
+
+  const resultPosts = [...pinnedAnnotated, ...mainFeedPosts];
   return NextResponse.json({ posts: resultPosts, nextCursor });
 }

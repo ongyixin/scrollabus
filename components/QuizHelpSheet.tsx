@@ -13,29 +13,27 @@ interface QuizHelpSheetProps {
   hasAnswered: boolean;
   open: boolean;
   onClose: () => void;
+  defaultPersonaSlug?: string;
 }
 
 const QUIZ_ACCENT = "#8B6FD4";
 
-// Parses the input to find a @mention and the active persona
+// Parses the input to find a @mention and the active persona.
+// Checks for each known persona name specifically (e.g. "@Lecture Bestie") so
+// that text typed after the mention ("@Lecture Bestie my question") is not
+// accidentally included in the name match.
 function parseMention(text: string): { personaSlug: string | null; cleanText: string } {
-  // Find the last @mention in the text that matches a known persona name
-  const knownNames = PERSONA_CONFIG.map((p) => p.name.toLowerCase());
-  const mentionRegex = /@([^@\n]+)/g;
-  let match: RegExpExecArray | null;
   let lastValidSlug: string | null = null;
   let cleanText = text;
 
-  while ((match = mentionRegex.exec(text)) !== null) {
-    const mentioned = match[1].toLowerCase().trim();
-    const personaIndex = knownNames.findIndex((n) => n === mentioned);
-    if (personaIndex !== -1) {
-      lastValidSlug = PERSONA_CONFIG[personaIndex].slug;
+  for (const persona of PERSONA_CONFIG) {
+    const escaped = persona.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`@${escaped}`, "gi");
+    if (regex.test(text)) {
+      lastValidSlug = persona.slug;
+      cleanText = text.replace(new RegExp(`@${escaped}`, "gi"), "").trim();
     }
   }
-
-  // Strip @mentions from the text sent to the API
-  cleanText = text.replace(/@([^\n]+)/g, "").trim();
 
   return { personaSlug: lastValidSlug, cleanText };
 }
@@ -100,9 +98,11 @@ interface MessageBubbleProps {
 
 function MessageBubble({ message }: MessageBubbleProps) {
   const isPersona = message.role === "persona";
-  const persona = isPersona
+  const knownPersona = isPersona
     ? PERSONA_CONFIG.find((p) => p.slug === message.persona_slug)
     : null;
+  // Accent color falls back to quiz purple for unknown (custom) personas
+  const accentColor = knownPersona?.accentColor ?? QUIZ_ACCENT;
 
   return (
     <motion.div
@@ -113,12 +113,12 @@ function MessageBubble({ message }: MessageBubbleProps) {
     >
       {/* Avatar */}
       <div className="shrink-0 mt-0.5">
-        {isPersona && persona ? (
+        {isPersona ? (
           <div
             className="w-8 h-8 rounded-full overflow-hidden ring-1 ring-white flex items-center justify-center"
-            style={{ backgroundColor: persona.accentColor + "25" }}
+            style={{ backgroundColor: accentColor + "25" }}
           >
-            <PersonaSprite slug={persona.slug} size={32} />
+            <PersonaSprite slug={message.persona_slug ?? ""} size={32} />
           </div>
         ) : (
           <div className="w-8 h-8 rounded-full bg-warm-200 flex items-center justify-center text-xs font-sans font-semibold text-charcoal/60">
@@ -129,8 +129,8 @@ function MessageBubble({ message }: MessageBubbleProps) {
 
       {/* Bubble */}
       <div className={`flex-1 flex flex-col ${isPersona ? "items-end" : "items-start"}`}>
-        {isPersona && persona && (
-          <span className="text-xs font-sans text-charcoal/50 mb-1">{persona.name}</span>
+        {isPersona && knownPersona && (
+          <span className="text-xs font-sans text-charcoal/50 mb-1">{knownPersona.name}</span>
         )}
         <div
           className="rounded-2xl px-4 py-2.5 text-sm font-sans leading-relaxed max-w-[85%]"
@@ -139,7 +139,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
                 background: "rgba(248,242,232,0.9)",
                 color: "#2D2926",
                 borderTopRightRadius: 4,
-                borderLeft: `3px solid ${persona?.accentColor ?? QUIZ_ACCENT}`,
+                borderLeft: `3px solid ${accentColor}`,
               }
             : {
                 background: "#2D2926",
@@ -157,30 +157,45 @@ function MessageBubble({ message }: MessageBubbleProps) {
 
 // ─── Main QuizHelpSheet ───────────────────────────────────────────────────────
 
-export function QuizHelpSheet({ quizId, question, hasAnswered, open, onClose }: QuizHelpSheetProps) {
+export function QuizHelpSheet({ quizId, question, hasAnswered, open, onClose, defaultPersonaSlug }: QuizHelpSheetProps) {
   const [messages, setMessages] = useState<QuizMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
-  // Mention picker state
+  // Mention picker state — pre-populate with quiz's authoring persona if available
+  // For custom personas not in PERSONA_CONFIG, use the slug as the display name fallback
+  const defaultKnownPersona = defaultPersonaSlug
+    ? PERSONA_CONFIG.find((p) => p.slug === defaultPersonaSlug) ?? null
+    : null;
+
   const [showPicker, setShowPicker] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
-  const [selectedPersonaSlug, setSelectedPersonaSlug] = useState<string | null>(null);
-  const [selectedPersonaName, setSelectedPersonaName] = useState<string | null>(null);
+  const [selectedPersonaSlug, setSelectedPersonaSlug] = useState<string | null>(defaultPersonaSlug ?? null);
+  const [selectedPersonaName, setSelectedPersonaName] = useState<string | null>(defaultKnownPersona?.name ?? null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Load chat history when sheet opens
+  // Load chat history when sheet opens; pre-fill input with default persona mention
   useEffect(() => {
     if (!open) return;
     setIsLoading(true);
     fetch(`/api/quiz-chat?quiz_id=${quizId}`)
       .then((r) => r.ok ? r.json() : { messages: [] })
-      .then((json) => setMessages(json.messages ?? []))
+      .then((json) => {
+        setMessages(json.messages ?? []);
+        // Pre-fill the mention if no conversation yet and a default persona exists
+        if ((json.messages ?? []).length === 0 && defaultKnownPersona) {
+          setInput(`@${defaultKnownPersona.name} `);
+          setSelectedPersonaSlug(defaultKnownPersona.slug);
+          setSelectedPersonaName(defaultKnownPersona.name);
+        }
+      })
       .catch(() => {})
       .finally(() => setIsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, quizId]);
 
   // Scroll to bottom on new messages
@@ -227,6 +242,7 @@ export function QuizHelpSheet({ quizId, question, hasAnswered, open, onClose }: 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || isSending) return;
+    setSendError(null);
 
     // Parse out the persona slug and clean message
     const { personaSlug, cleanText } = parseMention(input);
@@ -292,9 +308,15 @@ export function QuizHelpSheet({ quizId, question, hasAnswered, open, onClose }: 
             personaMsg,
           ];
         });
+      } else {
+        const json = await res.json().catch(() => ({}));
+        console.error("[quiz-help] API error:", res.status, json);
+        setSendError(json.error ?? "Something went wrong. Please try again.");
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
       }
     } catch (err) {
       console.error("[quiz-help] send error:", err);
+      setSendError("Couldn't reach the server. Check your connection.");
       // Remove optimistic message on failure
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
     } finally {
@@ -480,6 +502,20 @@ export function QuizHelpSheet({ quizId, question, hasAnswered, open, onClose }: 
                     </div>
                   </div>
                 </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Send error */}
+            <AnimatePresence>
+              {sendError && (
+                <motion.p
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mb-2 text-xs font-sans text-red-500 leading-snug"
+                >
+                  {sendError}
+                </motion.p>
               )}
             </AnimatePresence>
 

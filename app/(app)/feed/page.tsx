@@ -4,7 +4,7 @@ import { Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { PersonaSprite } from "@/components/PersonaSprites";
-import type { Post, Quiz, FeedItem } from "@/lib/types";
+import type { Post, Quiz, FeedItem, Persona } from "@/lib/types";
 import { PERSONA_CONFIG, QUIZ_INSERT_INTERVAL } from "@/lib/constants";
 import { FeedCard } from "@/components/FeedCard";
 import { QuizCard } from "@/components/QuizCard";
@@ -57,6 +57,48 @@ function buildFeedItems(posts: Post[], quizzes: Quiz[]): FeedItem[] {
   return items;
 }
 
+function FeedLoadingScreen() {
+  return (
+    <div className="min-h-dvh flex flex-col bg-cream animate-feed-fade-in">
+      {/* Skeleton filter bar */}
+      <div className="flex gap-2 px-4 py-3 pt-safe">
+        {[40, 56, 72, 56, 64].map((w, i) => (
+          <div
+            key={i}
+            className="h-7 rounded-full bg-warm-200 animate-pulse shrink-0"
+            style={{ width: w, animationDelay: `${i * 80}ms` }}
+          />
+        ))}
+      </div>
+
+      {/* Centred loading content */}
+      <div className="flex-1 flex flex-col items-center justify-center pb-24 gap-7">
+        {/* Ghost card */}
+        <div className="w-[min(340px,88vw)] rounded-3xl overflow-hidden shadow-card">
+          <div className="h-[200px] bg-warm-100 animate-pulse" />
+          <div className="bg-warm-50 px-5 py-4 space-y-2.5">
+            <div className="h-4 w-3/4 rounded-full bg-warm-200 animate-pulse" style={{ animationDelay: "80ms" }} />
+            <div className="h-3 w-1/2 rounded-full bg-warm-200 animate-pulse" style={{ animationDelay: "160ms" }} />
+          </div>
+        </div>
+
+        {/* Floating persona sprites */}
+        <div className="flex gap-5 mt-1">
+          {(["lecture-bestie", "exam-gremlin", "problem-grinder"] as const).map((slug, i) => (
+            <div key={slug} className="animate-float" style={{ animationDelay: `${i * 220}ms` }}>
+              <PersonaSprite slug={slug} size={42} />
+            </div>
+          ))}
+        </div>
+
+        <p className="font-sans text-charcoal/45 text-xs tracking-wide">
+          Getting your feed ready…
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function FeedContent() {
   const searchParams = useSearchParams();
   const materialId = searchParams.get("material_id");
@@ -72,9 +114,57 @@ function FeedContent() {
   const [activePersonaSlug, setActivePersonaSlug] = useState<string | null>(null);
   const [personaFilter, setPersonaFilter] = useState<string | null>(null);
   const [quizFilter, setQuizFilter] = useState(false);
+  const [allPersonas, setAllPersonas] = useState<Persona[]>(() =>
+    PERSONA_CONFIG.map((p) => ({
+      id: p.slug,
+      slug: p.slug,
+      name: p.name,
+      emoji: p.emoji,
+      accent_color: p.accentColor,
+      role_tag: "",
+      description: null,
+      system_prompt: "",
+      avatar_url: null,
+      created_by: null,
+      is_public: true,
+      tone: null,
+      teaching_style: null,
+    }))
+  );
 
   const impressionsQueue = useRef<PendingImpression[]>([]);
   const flushTimer = useRef<NodeJS.Timeout | null>(null);
+  const isFetchingMoreRef = useRef(false);
+  const feedContainerRef = useRef<HTMLDivElement | null>(null);
+  // Stable ref to the latest loadMore closure — lets the IntersectionObserver
+  // always call the current version without needing to be recreated.
+  const loadMoreFnRef = useRef<() => void>(() => {});
+  // Single persistent observer; disconnected/reconnected only when the
+  // trigger element itself mounts/unmounts (not on every render).
+  const triggerObserverRef = useRef<IntersectionObserver | null>(null);
+  const triggerRef = useCallback((el: HTMLDivElement | null) => {
+    triggerObserverRef.current?.disconnect();
+    triggerObserverRef.current = null;
+    if (el) {
+      triggerObserverRef.current = new IntersectionObserver(
+        ([entry]) => { if (entry.isIntersecting) loadMoreFnRef.current(); },
+        { threshold: 0.5 },
+      );
+      triggerObserverRef.current.observe(el);
+    }
+  }, []);
+
+  // Load all visible personas for filter chips
+  useEffect(() => {
+    fetch("/api/personas")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.personas && data.personas.length > 0) {
+          setAllPersonas(data.personas);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const flushImpressions = useCallback(async () => {
     const batch = impressionsQueue.current.splice(0);
@@ -98,6 +188,9 @@ function FeedContent() {
     if (materialId) params.set("material_id", materialId);
     const slug = filterSlug !== undefined ? filterSlug : personaFilter;
     if (slug) params.set("persona_slug", slug);
+    // Use adaptive mode on the home feed (no material filter and no persona filter)
+    // so the feed biases toward personas the student genuinely engages with.
+    if (!materialId && !slug) params.set("mode", "adaptive");
 
     const res = await fetch(`/api/feed?${params}`);
 
@@ -184,24 +277,38 @@ function FeedContent() {
   }, [materialId, personaFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadMore() {
-    if (!nextCursor || isFetchingMore) return;
+    if (!nextCursor || isFetchingMoreRef.current) return;
+    isFetchingMoreRef.current = true;
     setIsFetchingMore(true);
+    // Capture the current item count so we can scroll to the first new card
+    // after the DOM updates. The IntersectionObserver won't re-fire on its own
+    // because intersection ratio doesn't change when new items are prepended.
+    const prevCount = feedItems.length;
     const data = await fetchFeed(nextCursor, personaFilter);
     if (data) {
-      setPosts((prev) => [...prev, ...data.posts]);
+      setPosts((prev) => {
+        const existingIds = new Set(prev.map((p) => p.id));
+        const newPosts = data.posts.filter((p: Post) => !existingIds.has(p.id));
+        return [...prev, ...newPosts];
+      });
       setNextCursor(data.nextCursor);
+      // Give React + the browser two frames to flush the new DOM nodes, then
+      // snap-scroll to the first new card so the user isn't left on the trigger.
+      setTimeout(() => {
+        const container = feedContainerRef.current;
+        if (!container) return;
+        const firstNew = container.children[prevCount] as HTMLElement | undefined;
+        firstNew?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 80);
     }
+    isFetchingMoreRef.current = false;
     setIsFetchingMore(false);
   }
+  // Keep the stable ref current on every render so the observer always
+  // sees the latest nextCursor / personaFilter without being recreated.
+  loadMoreFnRef.current = loadMore;
 
-  if (isLoading) {
-    return (
-      <div className="min-h-dvh flex flex-col items-center justify-center bg-cream">
-        <Image src="/logo.png" alt="Scrollabus" width={160} height={87} className="mb-4 animate-pulse" />
-        <p className="font-sans text-charcoal/60 text-sm">Loading your feed…</p>
-      </div>
-    );
-  }
+  if (isLoading) return <FeedLoadingScreen />;
 
   if (posts.length === 0) {
     if (materialId) {
@@ -281,7 +388,7 @@ function FeedContent() {
           <div className="shrink-0 w-px bg-warm-200 self-stretch my-1" />
 
           {/* Persona filters */}
-          {PERSONA_CONFIG.map((p) => (
+          {allPersonas.map((p) => (
             <button
               key={p.slug}
               type="button"
@@ -291,10 +398,10 @@ function FeedContent() {
                   ? "text-white shadow-sm"
                   : "bg-white/70 backdrop-blur-sm text-charcoal/70 border border-warm-200"
               }`}
-              style={personaFilter === p.slug ? { backgroundColor: p.accentColor } : {}}
+              style={personaFilter === p.slug ? { backgroundColor: p.accent_color } : {}}
             >
               <span className="inline-flex items-center justify-center rounded-full overflow-hidden" style={{ width: 16, height: 16 }}>
-                <PersonaSprite slug={p.slug} size={16} />
+                <PersonaSprite slug={p.slug} size={16} emoji={p.emoji} accentColor={p.accent_color} />
               </span>
               <span>{p.name}</span>
             </button>
@@ -303,7 +410,7 @@ function FeedContent() {
       </div>
 
       {/* Feed: CSS snap scroll */}
-      <div className="feed-container pb-16">
+      <div ref={feedContainerRef} className="feed-container pb-16">
         {feedItems.map((item) =>
           item._type === "quiz" ? (
             <QuizCard
@@ -328,24 +435,29 @@ function FeedContent() {
         {/* Load more trigger */}
         {nextCursor && (
           <div
-            className="h-dvh flex items-center justify-center"
+            ref={triggerRef}
+            className="h-dvh flex flex-col items-center justify-center gap-5"
             style={{ scrollSnapAlign: "start" }}
-            ref={(el) => {
-              if (el) {
-                const observer = new IntersectionObserver(
-                  ([entry]) => { if (entry.isIntersecting) loadMore(); },
-                  { threshold: 0.5 }
-                );
-                observer.observe(el);
-                return () => observer.disconnect();
-              }
-            }}
           >
-            {isFetchingMore ? (
-              <Image src="/logo.png" alt="Scrollabus" width={100} height={55} className="animate-pulse" />
-            ) : (
-              <p className="font-sans text-charcoal/40 text-sm">Scroll for more…</p>
-            )}
+            {/* Persona sprites — bounce while fetching, dimmed while idle */}
+            <div className="flex gap-5">
+              {(["lecture-bestie", "exam-gremlin", "problem-grinder"] as const).map((slug, i) => (
+                <div
+                  key={slug}
+                  className="transition-all duration-500"
+                  style={{
+                    opacity: isFetchingMore ? 1 : 0.28,
+                    animation: isFetchingMore ? `bounce 1s ${i * 130}ms ease infinite` : "none",
+                  }}
+                >
+                  <PersonaSprite slug={slug} size={38} />
+                </div>
+              ))}
+            </div>
+            {/* Text fades between idle and loading copy */}
+            <p className="font-sans text-charcoal/50 text-sm transition-opacity duration-300">
+              {isFetchingMore ? "Loading more…" : "Scroll for more ✨"}
+            </p>
           </div>
         )}
       </div>
@@ -368,12 +480,7 @@ function FeedContent() {
 
 export default function FeedPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-dvh flex flex-col items-center justify-center bg-cream">
-        <Image src="/logo.png" alt="Scrollabus" width={160} height={87} className="mb-4 animate-pulse" />
-        <p className="font-sans text-charcoal/60 text-sm">Loading your feed…</p>
-      </div>
-    }>
+    <Suspense fallback={<FeedLoadingScreen />}>
       <FeedContent />
     </Suspense>
   );

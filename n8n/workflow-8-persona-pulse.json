@@ -1,0 +1,162 @@
+{
+  "name": "Scrollabus: Persona Pulse (Community Update Posts)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 24 }] }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/rpc/get_engagement_summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        }
+      },
+      "id": "fetch-engagement",
+      "name": "Fetch engagement summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/rpc/get_quiz_failure_hotspots",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { p_limit: 3, p_min_attempts: 2 } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        }
+      },
+      "id": "fetch-quiz-hotspots",
+      "name": "Fetch quiz failure hotspots",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 500],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/personas",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "select", "value": "id,slug,name,system_prompt" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "fetch-all-personas",
+      "name": "Fetch all personas",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 700],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guard: if no engagement data, skip\nconst engRaw = $('Fetch engagement summary').first().json;\nconst hotspotsRaw = $('Fetch quiz failure hotspots').first().json;\nconst personasRaw = $('Fetch all personas').first().json;\n\nconst topTopics     = engRaw?.top_topics ?? [];\nconst confTopics    = engRaw?.confusion_topics ?? [];\nconst saveCount     = engRaw?.save_count ?? 0;\nconst commentCount  = engRaw?.comment_count ?? 0;\nconst hotspots      = Array.isArray(hotspotsRaw) ? hotspotsRaw : [];\nconst personas      = Array.isArray(personasRaw) ? personasRaw : [];\n\nif (topTopics.length === 0 && confTopics.length === 0 && hotspots.length === 0) {\n  return []; // Nothing to report — skip\n}\n\n// Each persona gets a pulse post tailored to its style\nconst items = [];\nfor (const persona of personas) {\n  const failedQuestions = hotspots.map(h => h.question).slice(0, 3).join('; ') || 'none recorded yet';\n  const confusionList   = confTopics.join(', ') || 'none detected';\n  const topList         = topTopics.join(', ')  || 'none yet';\n\n  const systemPrompt = persona.system_prompt + `\n\nYou are writing a COMMUNITY PULSE post — a special update where you address your followers directly, like a creator going live to chat with their fanbase.\n\nThis post should feel personal and community-aware. Reference real data from the last 24 hours naturally.\nExample openers:\n- \"okay I checked the stats and we need to talk...\"\n- \"so I've been watching what you lot are struggling with and...\"\n- \"community check-in time!!! here's what I'm seeing...\"\n- \"alright your feedback has been LOUD so let me address this...\"\n\nKeep it SHORT (3-5 sentences), punchy, and in your signature voice.\nDo NOT give a full lesson — this is the teaser/hook that makes them want to engage.\nReturn ONLY valid JSON with fields \"title\" and \"body\".`;\n\n  const userPrompt = `Your community data from the last 24 hours:\n\n📈 Topics your followers engaged with most: ${topList}\n😕 Topics causing confusion (most human comments): ${confusionList}\n❌ Quiz questions they're failing: ${failedQuestions}\n💾 Saves: ${saveCount} | 💬 Comments: ${commentCount}\n\nWrite a community pulse post in YOUR voice that:\n1. Acknowledges what's been happening in the community\n2. Calls out the confusion/struggle areas in your signature style\n3. Teases that you're working on content for them (without giving it away)\n\nReturn ONLY valid JSON with fields \"title\" and \"body\".`;\n\n  items.push({\n    json: {\n      persona_id:    persona.id,\n      persona_slug:  persona.slug,\n      system_prompt: systemPrompt,\n      user_prompt:   userPrompt,\n      top_topics:    topTopics,\n    }\n  });\n}\n\nreturn items;"
+      },
+      "id": "build-pulse-items",
+      "name": "Build pulse items",
+      "type": "n8n-nodes-base.code",
+      "position": [700, 500],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.featherless.ai/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'deepseek-ai/DeepSeek-V3.2', messages: [{ role: 'system', content: $json.system_prompt }, { role: 'user', content: $json.user_prompt }], max_tokens: 400, temperature: 0.85 } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.FEATHERLESS_API_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        }
+      },
+      "id": "call-featherless",
+      "name": "Call Featherless",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [920, 500],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const llmResponse = $input.first().json;\nconst prev = $('Build pulse items').first().json;\n\nconst rawContent = llmResponse.choices?.[0]?.message?.content?.trim() ?? '';\n\nlet title = 'Community Pulse';\nlet body = rawContent;\n\ntry {\n  const cleaned = rawContent.replace(/^```json?\\s*/i, '').replace(/```\\s*$/i, '').trim();\n  const parsed = JSON.parse(cleaned);\n  if (parsed.title) title = parsed.title;\n  if (parsed.body)  body  = parsed.body;\n} catch { /* use raw */ }\n\nif (!body) return [];\n\n// Find a representative material_id from the engagement data for FK reference\n// Pulse posts are community-wide so we use null for material_id\nreturn [{\n  json: {\n    persona_id:  prev.persona_id,\n    persona_slug: prev.persona_slug,\n    title,\n    body,\n  }\n}];"
+      },
+      "id": "parse-pulse-post",
+      "name": "Parse pulse post",
+      "type": "n8n-nodes-base.code",
+      "position": [1140, 500],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/posts",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { material_id: null, persona_id: $json.persona_id, post_type: 'pulse', title: $json.title, body: $json.body, media_type: 'text', source: 'pulse', sort_order: -2 } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        }
+      },
+      "id": "insert-pulse-post",
+      "name": "Insert pulse post",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1360, 500],
+      "typeVersion": 4.2
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[
+        { "node": "Fetch engagement summary",     "type": "main", "index": 0 },
+        { "node": "Fetch quiz failure hotspots",  "type": "main", "index": 0 },
+        { "node": "Fetch all personas",           "type": "main", "index": 0 }
+      ]]
+    },
+    "Fetch engagement summary":    { "main": [[{ "node": "Build pulse items", "type": "main", "index": 0 }]] },
+    "Fetch quiz failure hotspots": { "main": [[{ "node": "Build pulse items", "type": "main", "index": 0 }]] },
+    "Fetch all personas":          { "main": [[{ "node": "Build pulse items", "type": "main", "index": 0 }]] },
+    "Build pulse items":           { "main": [[{ "node": "Call Featherless",  "type": "main", "index": 0 }]] },
+    "Call Featherless":            { "main": [[{ "node": "Parse pulse post",  "type": "main", "index": 0 }]] },
+    "Parse pulse post":            { "main": [[{ "node": "Insert pulse post", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "notes": "Persona Pulse: runs daily, generates one community update post per persona based on last 24h engagement summary + quiz failure hotspots. Posts use source='pulse', post_type='pulse', sort_order=-2 (higher priority than reactive). Env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY, FEATHERLESS_API_KEY. RPCs required: get_engagement_summary (engagement-rpc.sql), get_quiz_failure_hotspots (engagement-rpc.sql). NOTE: pulse posts have material_id=null which requires relaxing the posts FK constraint if it is NOT NULL in your schema."
+  }
+}

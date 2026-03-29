@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Quiz, QuizOption, QuizResponse } from "@/lib/types";
+import { PERSONA_CONFIG } from "@/lib/constants";
 import { QuizHelpSheet } from "./QuizHelpSheet";
 
 interface QuizCardProps {
@@ -10,9 +11,19 @@ interface QuizCardProps {
   onVisible: (quizId: string, durationMs: number) => void;
 }
 
+// ─── Persona accent helper ────────────────────────────────────────────────────
+
+function getPersonaStyle(slug: string | null): { color: string; name: string; emoji: string } {
+  if (!slug) return { color: "#8B6FD4", name: "Quiz", emoji: "❓" };
+  const found = PERSONA_CONFIG.find((p) => p.slug === slug);
+  return found
+    ? { color: found.accentColor, name: found.name, emoji: found.emoji }
+    : { color: "#8B6FD4", name: "Quiz", emoji: "❓" };
+}
+
 // ─── Quiz type badge ──────────────────────────────────────────────────────────
 
-const QUIZ_ACCENT = "#8B6FD4"; // Purple — distinct from all personas
+const QUIZ_ACCENT = "#8B6FD4"; // Purple — fallback when no persona
 
 function QuizTypeBadge({ type }: { type: Quiz["question_type"] }) {
   const labels: Record<Quiz["question_type"], string> = {
@@ -120,6 +131,8 @@ function AnswerOption({ option, selected, submitted, isCorrect, isWrong, disable
 export function QuizCard({ quiz, onVisible }: QuizCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const entryTimeRef = useRef<number | null>(null);
+  const personaStyle = getPersonaStyle(quiz.persona_slug ?? null);
+  const accentColor = personaStyle.color;
 
   // Selection state
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -235,22 +248,22 @@ export function QuizCard({ quiz, onVisible }: QuizCardProps) {
       className="relative h-dvh w-full flex flex-col overflow-hidden"
       style={{ scrollSnapAlign: "start" }}
     >
-      {/* Background gradient — quiz gets its own branded look */}
+      {/* Background gradient — tinted by persona accent color */}
       <div
         className="absolute inset-0"
         style={{
-          background: "linear-gradient(160deg, #FFF8F0 0%, rgba(139,111,212,0.08) 50%, rgba(91,139,212,0.14) 100%)",
+          background: `linear-gradient(160deg, #FFF8F0 0%, ${accentColor}14 50%, ${accentColor}22 100%)`,
         }}
       />
 
-      {/* Decorative blobs */}
+      {/* Decorative blobs using persona accent */}
       <div
         className="absolute top-[-60px] right-[-60px] w-52 h-52 rounded-full pointer-events-none"
-        style={{ background: "#8B6FD4", filter: "blur(60px)", opacity: 0.12 }}
+        style={{ background: accentColor, filter: "blur(60px)", opacity: 0.14 }}
       />
       <div
         className="absolute bottom-24 left-[-50px] w-40 h-40 rounded-full pointer-events-none"
-        style={{ background: "#5B8BD4", filter: "blur(50px)", opacity: 0.1 }}
+        style={{ background: accentColor, filter: "blur(50px)", opacity: 0.1 }}
       />
 
       {/* Content */}
@@ -259,25 +272,24 @@ export function QuizCard({ quiz, onVisible }: QuizCardProps) {
         {/* Header */}
         <div className="px-5 pt-14 pb-3 flex items-start justify-between">
           <QuizTypeBadge type={quiz.question_type} />
-          {/* Quiz indicator */}
+          {/* Persona badge — shows who authored this quiz */}
           <div
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-sans font-semibold"
             style={{
-              background: "rgba(255,255,255,0.7)",
+              background: "rgba(255,255,255,0.8)",
               backdropFilter: "blur(8px)",
-              border: "1px solid rgba(139,111,212,0.2)",
-              color: QUIZ_ACCENT,
+              border: `1px solid ${accentColor}40`,
+              color: accentColor,
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="9" y="2" width="6" height="4" rx="1" /><path d="M4 6h16v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" /><line x1="9" y1="12" x2="15" y2="12" /><line x1="9" y1="16" x2="13" y2="16" />
-            </svg>
-            <span>Quiz</span>
+            <span>{personaStyle.emoji}</span>
+            <span>{personaStyle.name}</span>
           </div>
         </div>
 
         {/* Scrollable answer area */}
-        <div className="flex-1 overflow-y-auto px-5 pb-4 flex flex-col gap-5">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 flex flex-col items-center justify-start">
+        <div className="w-full flex flex-col gap-5" style={{ maxWidth: "min(100%, 580px)" }}>
 
           {/* Question */}
           <motion.div
@@ -367,10 +379,10 @@ export function QuizCard({ quiz, onVisible }: QuizCardProps) {
                 className="w-full py-3.5 rounded-2xl font-sans font-semibold text-sm text-white transition-all"
                 style={{
                   background: canSubmit
-                    ? "linear-gradient(135deg, #8B6FD4, #5B8BD4)"
-                    : "rgba(139,111,212,0.3)",
+                    ? `linear-gradient(135deg, ${accentColor}, ${accentColor}cc)`
+                    : `${accentColor}4d`,
                   boxShadow: canSubmit
-                    ? "0 4px 16px rgba(139,111,212,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
+                    ? `0 4px 16px ${accentColor}59, inset 0 1px 0 rgba(255,255,255,0.25)`
                     : "none",
                 }}
               >
@@ -479,7 +491,7 @@ export function QuizCard({ quiz, onVisible }: QuizCardProps) {
             )}
           </AnimatePresence>
 
-          {/* Ask a persona — sits right below the quiz options */}
+          {/* Ask the quiz's persona for help */}
           <motion.button
             type="button"
             onClick={() => setHelpOpen(true)}
@@ -489,29 +501,29 @@ export function QuizCard({ quiz, onVisible }: QuizCardProps) {
               background: "rgba(255,255,255,0.75)",
               backdropFilter: "blur(10px)",
               WebkitBackdropFilter: "blur(10px)",
-              border: "1px solid rgba(139,111,212,0.25)",
-              boxShadow: "0 2px 10px rgba(139,111,212,0.1), inset 0 1px 0 rgba(255,255,255,0.6)",
-              color: QUIZ_ACCENT,
+              border: `1px solid ${accentColor}40`,
+              boxShadow: `0 2px 10px ${accentColor}1a, inset 0 1px 0 rgba(255,255,255,0.6)`,
+              color: accentColor,
             }}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            <span>Ask a persona</span>
+            <span>{personaStyle.emoji}</span>
+            <span>Ask {personaStyle.name}</span>
           </motion.button>
 
           {/* Bottom padding spacer */}
           <div className="h-4" />
         </div>
+        </div>
       </div>
 
-      {/* Help sheet */}
+      {/* Help sheet — defaults to the quiz's authoring persona */}
       <QuizHelpSheet
         quizId={quiz.id}
         question={quiz.question}
         hasAnswered={submitted}
         open={helpOpen}
         onClose={() => setHelpOpen(false)}
+        defaultPersonaSlug={quiz.persona_slug ?? undefined}
       />
     </div>
   );

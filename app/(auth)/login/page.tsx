@@ -179,10 +179,30 @@ export default function LoginPage() {
         </div>
 
         {/* Tagline flanked by tiny sparkles */}
-        <p className="font-sans text-charcoal/55 text-sm flex items-center justify-center gap-2 mt-1">
-          <Sparkle size={7} color="#C9B8E8" animate delay={0.5} />
-          Doomscroll your syllabus.
-          <Sparkle size={7} color="#F5D97A" animate delay={1.1} />
+        <p className="flex items-center justify-center gap-2 mt-1">
+          <Sparkle size={8} color="#C9B8E8" animate delay={0.5} />
+          <span
+            className="font-display font-bold text-base tracking-wide px-3 py-0.5 rounded-full"
+            style={{
+              background: "rgba(220, 200, 245, 0.55)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.6), 0 2px 10px rgba(201,184,232,0.3)",
+            }}
+          >
+            <span
+              style={{
+                background:
+                  "linear-gradient(90deg, #9B85CE 0%, #D4548A 22%, #E8943A 44%, #C8A020 66%, #5A8E48 88%, #9B85CE 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
+            >
+              Doomscroll your syllabus.
+            </span>
+          </span>
+          <Sparkle size={8} color="#F5D97A" animate delay={1.1} />
         </p>
       </motion.div>
 

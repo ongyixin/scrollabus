@@ -1,5 +1,5 @@
 {
-  "name": "Scrollabus: Sub — Video Posts",
+  "name": "Scrollabus: Sub — Slideshow Posts",
   "nodes": [
     {
       "parameters": {},
@@ -11,30 +11,30 @@
     },
     {
       "parameters": {
-        "jsCode": "return $input.all().filter(i => i.json.media_type === 'video');"
+        "jsCode": "return $input.all().filter(i => i.json.media_type === 'slideshow');"
       },
-      "id": "filter-video",
-      "name": "Filter: video",
+      "id": "filter-slideshow",
+      "name": "Filter: slideshow",
       "type": "n8n-nodes-base.code",
       "position": [460, 300],
       "typeVersion": 2
     },
     {
       "parameters": {
-        "jsCode": "// Cap at 2 videos per run to avoid overwhelming the generation service\nreturn $input.all().slice(0, 2);"
+        "jsCode": "// Cap at 2 slideshow posts per run to keep generation cost under ~$0.20/upload\nreturn $input.all().slice(0, 2);"
       },
       "id": "limit-to-2",
-      "name": "Limit to 2 videos",
+      "name": "Limit to 2 slideshows",
       "type": "n8n-nodes-base.code",
       "position": [680, 300],
       "typeVersion": 2
     },
     {
       "parameters": {
-        "jsCode": "const items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    video_prompt: `Short educational ${item.json.post_type} video clip, TikTok portrait style 9:16. Topic: ${item.json.title ?? item.json.chunk_text.slice(0, 150)}. Style: ${item.json.persona_slug === 'doodle-prof' ? 'animated doodle drawing itself on screen, sketch style, black pen on white paper, comic panels appearing' : item.json.persona_slug === 'meme-lord' ? 'rapid meme montage, bold Impact captions appearing one by one, reaction video format' : item.json.persona_slug === 'exam-gremlin' ? 'fast-paced meme style, bold captions, warning flashes' : item.json.persona_slug === 'lecture-bestie' ? 'friendly explainer with text callouts and icons, pastel lavender background' : item.json.persona_slug === 'study-bard' ? 'music lyric video, lyrics animating to beat, musical notes flying, sky blue and white palette' : 'step-by-step walkthrough with numbered highlights and arrows'}. No faces. 5 seconds.`\n  }\n}));"
+        "jsCode": "// For each slideshow item, expand into 3 frame sub-items.\n// Each frame gets a purpose-specific prompt, persona-specific visual style,\n// and carries forward all parent fields plus frame_index and frame_purpose.\nconst FRAME_PURPOSES = [\n  { index: 0, purpose: 'intro',   instruction: 'Introduce the concept visually with a clear title and bold key term.' },\n  { index: 1, purpose: 'detail',  instruction: 'Show the key detail, diagram, or worked example for this concept.' },\n  { index: 2, purpose: 'summary', instruction: 'Summarise the takeaway in one memorable visual with the main insight.' },\n];\n\nconst PERSONA_STYLE = {\n  'doodle-prof':    'hand-drawn sketch style, black pen lines on white paper, comic panel layout, no human faces',\n  'meme-lord':      'bold Impact-font meme layout, high contrast, classic meme template aesthetic, no human faces',\n  'exam-gremlin':   'stark warning-poster style, red accents, bold sans-serif text, no human faces',\n  'lecture-bestie': 'pastel lavender and mint colour palette, friendly infographic style, rounded shapes, no human faces',\n  'study-bard':     'lyric-card style, musical-note motifs, sky blue and white, elegant serif font, no human faces',\n  'problem-grinder':'step-by-step diagram with numbered boxes and arrows, clean technical illustration, no human faces',\n};\nconst DEFAULT_STYLE = 'clean educational infographic, minimal flat design, no human faces';\n\nconst items = $input.all();\nconst results = [];\nfor (const item of items) {\n  const d = item.json;\n  const topic    = d.title ?? d.chunk_text.slice(0, 100);\n  const excerpt  = d.chunk_text.slice(0, 300);\n  const style    = PERSONA_STYLE[d.persona_slug] ?? DEFAULT_STYLE;\n\n  for (const frame of FRAME_PURPOSES) {\n    results.push({\n      json: {\n        ...d,\n        frame_index:   frame.index,\n        frame_purpose: frame.purpose,\n        image_prompt:  `Portrait 9:16 educational image. Topic: \"${topic}\". ${frame.instruction} Excerpt: ${excerpt}. Visual style: ${style}.`,\n      }\n    });\n  }\n}\nreturn results;"
       },
-      "id": "build-video-prompt",
-      "name": "Build video prompt",
+      "id": "build-image-prompts",
+      "name": "Build image prompts",
       "type": "n8n-nodes-base.code",
       "position": [900, 300],
       "typeVersion": 2
@@ -42,32 +42,137 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $vars.DIFY_API_URL + '/workflows/run' }}",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/imagen-4-fast:predict?key={{ $vars.GEMINI_API_KEY }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { inputs: { prompt: $json.video_prompt }, response_mode: 'blocking', user: 'scrollabus-n8n' } }}",
+        "jsonBody": "={{ { instances: [{ prompt: $json.image_prompt }], parameters: { aspectRatio: '9:16', sampleCount: 1 } } }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.DIFY_VIDEO_API_KEY }}" },
-            { "name": "Content-Type",  "value": "application/json" }
+            { "name": "Content-Type", "value": "application/json" }
           ]
         }
       },
-      "id": "call-dify-video",
-      "name": "Call Dify (video)",
+      "id": "call-imagen",
+      "name": "Call Imagen 4 Fast",
       "type": "n8n-nodes-base.httpRequest",
       "position": [1120, 300],
       "typeVersion": 4.2
     },
     {
       "parameters": {
-        "jsCode": "const difyResponses = $input.all();\nconst buildData     = $('Build video prompt').all();\n\nconst results = [];\nfor (let i = 0; i < difyResponses.length; i++) {\n  const response = difyResponses[i].json;\n  const prev     = buildData[i].json;\n\n  // Dify blocking workflow response: response.data.outputs.<your_output_var>\n  // Adjust the key below if your Dify workflow uses a different output variable name\n  const outputs  = response?.data?.outputs ?? {};\n  const videoUrl = outputs.video_url ?? outputs.url ?? outputs.result ?? null;\n  if (!videoUrl) continue;\n\n  results.push({\n    json: {\n      material_id: prev.material_id,\n      persona_id:  prev.persona_id,\n      post_type:   prev.post_type,\n      title:       prev.title ?? null,\n      body:        prev.chunk_text.slice(0, 300),\n      media_type:  'video',\n      media_url:   videoUrl,\n      source:      'n8n',\n      sort_order:  prev.chunk_index * 4 + 3,\n    }\n  });\n}\nreturn results;"
+        "jsCode": "const responses  = $input.all();\nconst prompts    = $('Build image prompts').all();\n\nconst results = [];\nfor (let i = 0; i < responses.length; i++) {\n  const response = responses[i].json;\n  const prev     = prompts[i].json;\n\n  const prediction = response?.predictions?.[0];\n  if (!prediction) continue;\n\n  const b64      = prediction.bytesBase64Encoded;\n  const mimeType = prediction.mimeType ?? 'image/png';\n  const ext      = mimeType.includes('jpeg') ? 'jpg' : 'png';\n  const fileName = `${prev.persona_slug}-${prev.chunk_index}-frame-${prev.frame_index}.${ext}`;\n  const filePath = `${prev.material_id}/${fileName}`;\n\n  results.push({\n    json: {\n      ...prev,\n      mime_type: mimeType,\n      file_path: filePath,\n      file_name: fileName,\n    },\n    binary: {\n      image_data: { data: b64, mimeType, fileName }\n    }\n  });\n}\nreturn results;"
       },
-      "id": "parse-video-response",
-      "name": "Parse video response",
+      "id": "extract-image-data",
+      "name": "Extract image data",
       "type": "n8n-nodes-base.code",
       "position": [1340, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/storage/v1/object/post-media/{{ $json.file_path }}",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "image_data",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "={{ $json.mime_type }}" },
+            { "name": "x-upsert",      "value": "true" }
+          ]
+        }
+      },
+      "id": "upload-frame",
+      "name": "Upload frame to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1560, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect the 3 uploaded frame URLs back into one item per original slideshow post.\n// Items arrive grouped: frames 0, 1, 2 for post A, then 0, 1, 2 for post B, etc.\n// We identify parent items by (material_id + persona_slug + chunk_index).\nconst uploads   = $input.all();\nconst extracted = $('Extract image data').all();\nconst supabaseUrl = $vars.SUPABASE_URL;\n\n// Build a key → [frameUrl] map\nconst groups = {};\nfor (let i = 0; i < uploads.length; i++) {\n  const prev     = extracted[i].json;\n  const frameUrl = `${supabaseUrl}/storage/v1/object/public/post-media/${prev.file_path}`;\n  const key      = `${prev.material_id}|${prev.persona_slug}|${prev.chunk_index}`;\n  if (!groups[key]) {\n    groups[key] = { meta: prev, frames: [] };\n  }\n  groups[key].frames[prev.frame_index] = frameUrl;\n}\n\nreturn Object.values(groups).map(g => ({ json: { ...g.meta, frame_urls: g.frames } }));"
+      },
+      "id": "collect-frame-urls",
+      "name": "Collect frame URLs",
+      "type": "n8n-nodes-base.code",
+      "position": [1780, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build a short spoken voiceover script from the chunk text.\n// Keep to 2-3 sentences so it fits a ~7-second clip across 3 frames.\nconst PERSONA_VOICE_STYLE = {\n  'lecture-bestie': 'friendly and encouraging',\n  'exam-gremlin':   'urgent and sharp',\n  'problem-grinder':'methodical and clear',\n  'doodle-prof':    'playful and curious',\n  'meme-lord':      'casual and punchy',\n  'study-bard':     'poetic and musical',\n};\n\nconst items = $input.all();\nreturn items.map(item => {\n  const d       = item.json;\n  const excerpt = d.chunk_text.slice(0, 400);\n  const style   = PERSONA_VOICE_STYLE[d.persona_slug] ?? 'clear and informative';\n  const script  = `Explain this study concept in 2-3 ${style} spoken sentences. No titles or bullets. Only the spoken words. Topic: ${excerpt}`;\n  return { json: { ...d, tts_script: script } };\n});"
+      },
+      "id": "build-voiceover-script",
+      "name": "Build voiceover script",
+      "type": "n8n-nodes-base.code",
+      "position": [2000, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={{ $vars.GEMINI_API_KEY }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { contents: [{ parts: [{ text: $json.tts_script }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: $json.persona_slug === 'lecture-bestie' ? 'Aoede' : $json.persona_slug === 'exam-gremlin' ? 'Charon' : $json.persona_slug === 'problem-grinder' ? 'Fenrir' : $json.persona_slug === 'study-bard' ? 'Aoede' : $json.persona_slug === 'meme-lord' ? 'Puck' : 'Kore' } } } } } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        }
+      },
+      "id": "call-gemini-tts",
+      "name": "Call Gemini TTS",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [2220, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const responses = $input.all();\nconst scripts   = $('Build voiceover script').all();\n\nconst results = [];\nfor (let i = 0; i < responses.length; i++) {\n  const response = responses[i].json;\n  const prev     = scripts[i].json;\n\n  const parts     = response?.candidates?.[0]?.content?.parts ?? [];\n  const audioPart = parts.find(p => p.inlineData?.mimeType?.startsWith('audio/'));\n  if (!audioPart) continue;\n\n  const b64      = audioPart.inlineData.data;\n  const mimeType = audioPart.inlineData.mimeType ?? 'audio/mpeg';\n  const fileName = `${prev.persona_slug}-${prev.chunk_index}-voiceover.mp3`;\n  const filePath = `${prev.material_id}/${fileName}`;\n\n  results.push({\n    json: {\n      ...prev,\n      audio_mime_type: mimeType,\n      audio_file_path: filePath,\n      audio_file_name: fileName,\n    },\n    binary: {\n      audio_data: { data: b64, mimeType, fileName }\n    }\n  });\n}\nreturn results;"
+      },
+      "id": "extract-audio-data",
+      "name": "Extract audio data",
+      "type": "n8n-nodes-base.code",
+      "position": [2440, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/storage/v1/object/post-media/{{ $json.audio_file_path }}",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "audio_data",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "={{ $json.audio_mime_type }}" },
+            { "name": "x-upsert",      "value": "true" }
+          ]
+        }
+      },
+      "id": "upload-voiceover",
+      "name": "Upload voiceover to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [2660, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const uploads  = $input.all();\nconst audioExt = $('Extract audio data').all();\nconst supabaseUrl = $vars.SUPABASE_URL;\n\nreturn uploads.map((_, i) => {\n  const prev     = audioExt[i].json;\n  const audioUrl = `${supabaseUrl}/storage/v1/object/public/post-media/${prev.audio_file_path}`;\n\n  // Assemble the JSON payload stored in media_url\n  const slideshowPayload = JSON.stringify({\n    frames:           prev.frame_urls,\n    audio_url:        audioUrl,\n    frame_duration_ms: 2500,\n  });\n\n  return {\n    json: {\n      material_id: prev.material_id,\n      persona_id:  prev.persona_id,\n      post_type:   prev.post_type,\n      title:       prev.title ?? null,\n      body:        prev.chunk_text.slice(0, 300),\n      media_type:  'slideshow',\n      media_url:   slideshowPayload,\n      source:      'n8n',\n      sort_order:  prev.chunk_index * 4 + 3,\n    }\n  };\n});"
+      },
+      "id": "build-slideshow-post",
+      "name": "Build slideshow post",
+      "type": "n8n-nodes-base.code",
+      "position": [2880, 300],
       "typeVersion": 2
     },
     {
@@ -87,31 +192,52 @@
           ]
         }
       },
-      "id": "insert-video-post",
-      "name": "Insert video post",
+      "id": "insert-slideshow-post",
+      "name": "Insert slideshow post",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [1560, 300],
+      "position": [3100, 300],
       "typeVersion": 4.2
     }
   ],
   "connections": {
     "Execute Workflow Trigger": {
-      "main": [[{ "node": "Filter: video", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Filter: slideshow", "type": "main", "index": 0 }]]
     },
-    "Filter: video": {
-      "main": [[{ "node": "Limit to 2 videos", "type": "main", "index": 0 }]]
+    "Filter: slideshow": {
+      "main": [[{ "node": "Limit to 2 slideshows", "type": "main", "index": 0 }]]
     },
-    "Limit to 2 videos": {
-      "main": [[{ "node": "Build video prompt", "type": "main", "index": 0 }]]
+    "Limit to 2 slideshows": {
+      "main": [[{ "node": "Build image prompts", "type": "main", "index": 0 }]]
     },
-    "Build video prompt": {
-      "main": [[{ "node": "Call Dify (video)", "type": "main", "index": 0 }]]
+    "Build image prompts": {
+      "main": [[{ "node": "Call Imagen 4 Fast", "type": "main", "index": 0 }]]
     },
-    "Call Dify (video)": {
-      "main": [[{ "node": "Parse video response", "type": "main", "index": 0 }]]
+    "Call Imagen 4 Fast": {
+      "main": [[{ "node": "Extract image data", "type": "main", "index": 0 }]]
     },
-    "Parse video response": {
-      "main": [[{ "node": "Insert video post", "type": "main", "index": 0 }]]
+    "Extract image data": {
+      "main": [[{ "node": "Upload frame to Storage", "type": "main", "index": 0 }]]
+    },
+    "Upload frame to Storage": {
+      "main": [[{ "node": "Collect frame URLs", "type": "main", "index": 0 }]]
+    },
+    "Collect frame URLs": {
+      "main": [[{ "node": "Build voiceover script", "type": "main", "index": 0 }]]
+    },
+    "Build voiceover script": {
+      "main": [[{ "node": "Call Gemini TTS", "type": "main", "index": 0 }]]
+    },
+    "Call Gemini TTS": {
+      "main": [[{ "node": "Extract audio data", "type": "main", "index": 0 }]]
+    },
+    "Extract audio data": {
+      "main": [[{ "node": "Upload voiceover to Storage", "type": "main", "index": 0 }]]
+    },
+    "Upload voiceover to Storage": {
+      "main": [[{ "node": "Build slideshow post", "type": "main", "index": 0 }]]
+    },
+    "Build slideshow post": {
+      "main": [[{ "node": "Insert slideshow post", "type": "main", "index": 0 }]]
     }
   },
   "settings": {
@@ -119,6 +245,6 @@
   },
   "staticData": null,
   "meta": {
-    "notes": "Sub-workflow 1e: receives all built-prompt items from orchestrator, filters to media_type=video, caps at 2 per run, submits prompt to a Dify workflow app (blocking), parses the video URL from outputs, inserts post.\n\nSetup:\n1. Create a Dify Workflow app with one input variable named 'prompt' and one output variable named 'video_url' (or 'url' / 'result' — the parse node tries all three).\n2. Configure your preferred video-generation model (e.g. Kling, Wan, etc.) inside that Dify app.\n3. Add DIFY_VIDEO_API_KEY as an n8n variable (the API key for this specific Dify app, NOT the teaching-workflow key).\n4. DIFY_API_URL should be https://api.dify.ai/v1 (already set).\n5. SUPABASE_URL and SUPABASE_SERVICE_KEY must also be set as n8n variables."
+    "notes": "Sub-workflow 1e (rewritten): receives items from orchestrator, filters to media_type=slideshow, caps at 2 per run.\n\nPipeline:\n1. Expand each item into 3 frame sub-items (intro / detail / summary).\n2. Call Imagen 4 Fast for each frame (portrait 9:16, persona-specific style prompt).\n3. Upload frames to Supabase Storage bucket 'post-media' at {material_id}/{slug}-{ci}-frame-{n}.png.\n4. Collect the 3 frame public URLs back into one item per slideshow post.\n5. Build a 2-3 sentence spoken voiceover script from chunk_text.\n6. Call Gemini 2.5 Flash TTS (AUDIO responseModality) with a persona-mapped voice name.\n7. Upload voiceover MP3 to Storage at {material_id}/{slug}-{ci}-voiceover.mp3.\n8. Assemble JSON payload: { frames: [...], audio_url: '...', frame_duration_ms: 2500 } stored in posts.media_url.\n9. Insert post with media_type='slideshow'.\n\nCost estimate: ~$0.07-0.09 per post (3x $0.02 Imagen + ~$0.01 TTS).\n\nEnv vars required (n8n Variables): GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY"
   }
 }

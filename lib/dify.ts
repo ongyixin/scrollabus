@@ -19,7 +19,7 @@ export interface DifyWorkflowResult {
  *   - material_uploaded: classify prior knowledge, generate personalized teaching plan
  *   - comment_posted: generate memory-aware persona reply
  *   - feed_opened: surface weak/stale concepts from learner memory
- *   - scheduled_followup: generate a Photon nudge (quiz, recap, reminder)
+ *   - scheduled_followup: generate a Telegram nudge (quiz, recap, reminder)
  *
  * Returns the workflow output on success, or { success: false } if not configured.
  */

@@ -51,12 +51,45 @@
     },
     {
       "parameters": {
-        "jsCode": "// Extract audio from Lyria response, upload to Supabase Storage via fetch,\n// then build the post row payload.\nasync function uploadToSupabase(supabaseUrl, serviceKey, filePath, audioBytes, mimeType) {\n  const uploadUrl = `${supabaseUrl}/storage/v1/object/post-media/${filePath}`;\n  const res = await fetch(uploadUrl, {\n    method: 'POST',\n    headers: {\n      'apikey': serviceKey,\n      'Authorization': `Bearer ${serviceKey}`,\n      'Content-Type': mimeType,\n      'x-upsert': 'true',\n    },\n    body: audioBytes,\n  });\n  if (!res.ok) {\n    const body = await res.text();\n    throw new Error(`Supabase upload failed: HTTP ${res.status} — ${body}`);\n  }\n  return { status: res.status };\n}\n\nconst lyriaResponses = $input.all();\nconst buildData      = $('Build Lyria prompt').all();\nconst supabaseUrl    = $vars.SUPABASE_URL;\nconst serviceKey     = $vars.SUPABASE_SERVICE_KEY;\n\nconst results = [];\nfor (let i = 0; i < lyriaResponses.length; i++) {\n  const response = lyriaResponses[i].json;\n  const prev     = buildData[i].json;\n\n  const parts     = response?.candidates?.[0]?.content?.parts ?? [];\n  const audioPart = parts.find(p => p.inlineData?.mimeType?.startsWith('audio/'));\n  if (!audioPart) continue;\n\n  const b64 = audioPart.inlineData.data;\n  if (!b64 || b64.length === 0) continue;\n\n  const audioBytes = Buffer.from(b64, 'base64');\n  const mimeType   = audioPart.inlineData.mimeType ?? 'audio/mpeg';\n  const fileName   = `${prev.persona_slug}-${prev.chunk_index}-audio.mp3`;\n  const filePath   = `${prev.material_id}/${fileName}`;\n\n  await uploadToSupabase(supabaseUrl, serviceKey, filePath, audioBytes, mimeType);\n\n  const mediaUrl = `${supabaseUrl}/storage/v1/object/public/post-media/${filePath}`;\n  results.push({\n    json: {\n      material_id: prev.material_id,\n      persona_id:  prev.persona_id,\n      post_type:   prev.post_type,\n      title:       prev.title ?? null,\n      body:        prev.chunk_text.slice(0, 300),\n      media_type:  'audio',\n      media_url:   mediaUrl,\n      source:      'n8n',\n      sort_order:  prev.chunk_index * 4 + 2,\n    }\n  });\n}\nreturn results;"
+        "jsCode": "const items     = $input.all();\nconst buildData = $('Build Lyria prompt').all();\n\nconst results = [];\nfor (let i = 0; i < items.length; i++) {\n  const response = items[i].json;\n  const prev     = buildData[i].json;\n\n  const parts     = response?.candidates?.[0]?.content?.parts ?? [];\n  const audioPart = parts.find(p => p.inlineData?.mimeType?.startsWith('audio/'));\n  if (!audioPart) continue;\n\n  const b64 = audioPart.inlineData.data;\n  if (!b64 || b64.length === 0) continue;\n\n  const mimeType = audioPart.inlineData.mimeType ?? 'audio/mpeg';\n  const fileName = `${prev.persona_slug}-${prev.chunk_index}-audio.mp3`;\n  const filePath = `${prev.material_id}/${fileName}`;\n\n  results.push({\n    json: {\n      ...prev,\n      mime_type: mimeType,\n      file_path: filePath,\n    },\n    binary: {\n      audio_data: { data: b64, mimeType: mimeType, fileName: fileName }\n    }\n  });\n}\nreturn results;"
       },
-      "id": "extract-upload-build",
-      "name": "Extract, upload & build post",
+      "id": "extract-audio",
+      "name": "Extract audio data",
       "type": "n8n-nodes-base.code",
       "position": [1120, 300],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/storage/v1/object/post-media/{{ $json.file_path }}",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "audio_data",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "={{ $json.mime_type }}" },
+            { "name": "x-upsert",      "value": "true" }
+          ]
+        }
+      },
+      "id": "upload-audio",
+      "name": "Upload audio to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1340, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const uploadResponses = $input.all();\nconst extractData     = $('Extract audio data').all();\nconst supabaseUrl     = $vars.SUPABASE_URL;\n\nreturn uploadResponses.map((res, i) => {\n  const prev     = extractData[i].json;\n  const mediaUrl = `${supabaseUrl}/storage/v1/object/public/post-media/${prev.file_path}`;\n  return {\n    json: {\n      material_id: prev.material_id,\n      persona_id:  prev.persona_id,\n      post_type:   prev.post_type,\n      title:       prev.title ?? null,\n      body:        prev.chunk_text.slice(0, 300),\n      media_type:  'audio',\n      media_url:   mediaUrl,\n      source:      'n8n',\n      sort_order:  prev.chunk_index * 4 + 2,\n    }\n  };\n});"
+      },
+      "id": "build-audio-post",
+      "name": "Build audio post",
+      "type": "n8n-nodes-base.code",
+      "position": [1560, 300],
       "typeVersion": 2
     },
     {
@@ -79,7 +112,7 @@
       "id": "insert-audio-post",
       "name": "Insert audio post",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [1340, 300],
+      "position": [1780, 300],
       "typeVersion": 4.2
     }
   ],
@@ -94,9 +127,15 @@
       "main": [[{ "node": "Call Lyria 3", "type": "main", "index": 0 }]]
     },
     "Call Lyria 3": {
-      "main": [[{ "node": "Extract, upload & build post", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Extract audio data", "type": "main", "index": 0 }]]
     },
-    "Extract, upload & build post": {
+    "Extract audio data": {
+      "main": [[{ "node": "Upload audio to Storage", "type": "main", "index": 0 }]]
+    },
+    "Upload audio to Storage": {
+      "main": [[{ "node": "Build audio post", "type": "main", "index": 0 }]]
+    },
+    "Build audio post": {
       "main": [[{ "node": "Insert audio post", "type": "main", "index": 0 }]]
     }
   },
@@ -105,6 +144,6 @@
   },
   "staticData": null,
   "meta": {
-    "notes": "Sub-workflow 1d: receives all built-prompt items from orchestrator, filters to media_type=audio and persona=study-bard, generates music with Google Lyria 3 Clip, uploads MP3 to Supabase Storage using native Node.js HTTPS (avoids n8n binary-data empty-body bug), inserts post. Env vars: GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY"
+    "notes": "Sub-workflow 1d: receives all built-prompt items from orchestrator, filters to persona=study-bard, generates music with Google Lyria 3 Clip, uploads MP3 to Supabase Storage via HTTP Request node (binary data, avoids fetch/Node.js HTTPS), inserts post. Env vars: GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY"
   }
 }

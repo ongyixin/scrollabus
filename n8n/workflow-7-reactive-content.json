@@ -1,0 +1,187 @@
+{
+  "name": "Scrollabus: Reactive Content (Fan Demand Loop)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 6 }] }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [240, 300],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/rpc/get_quiz_failure_hotspots",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { p_limit: 5, p_min_attempts: 2 } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        }
+      },
+      "id": "fetch-failure-hotspots",
+      "name": "Fetch quiz failure hotspots",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 300],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/rpc/get_engagement_summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        }
+      },
+      "id": "fetch-engagement-summary",
+      "name": "Fetch engagement summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 500],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge failure hotspots and engagement summary; if no hotspots exist, stop.\nconst failureRaw = $('Fetch quiz failure hotspots').first().json;\nconst hotspots = Array.isArray(failureRaw) ? failureRaw : (failureRaw ?? []);\n\nif (!hotspots || hotspots.length === 0) {\n  return []; // Nothing to react to — halt workflow\n}\n\nconst engRaw = $('Fetch engagement summary').first().json;\nconst confusionTopics = engRaw?.confusion_topics ?? [];\nconst topTopics = engRaw?.top_topics ?? [];\n\n// Map persona slugs to which post types they focus on\nconst PERSONA_FOCUS = {\n  'lecture-bestie':   { post_type: 'concept',  priority: 1 },\n  'exam-gremlin':     { post_type: 'trap',     priority: 0 },\n  'problem-grinder':  { post_type: 'example',  priority: 2 },\n  'doodle-prof':      { post_type: 'concept',  priority: 3 },\n  'meme-lord':        { post_type: 'review',   priority: 3 },\n  'study-bard':       { post_type: 'recap',    priority: 3 },\n};\n\n// For each hotspot, assign the two most pedagogically relevant personas:\n// Exam Gremlin (trap expert) + one other that suits the material\nconst reactiveItems = [];\nfor (const hotspot of hotspots.slice(0, 3)) {\n  const assignedPersonas = ['exam-gremlin', 'lecture-bestie'];\n  for (const slug of assignedPersonas) {\n    const focus = PERSONA_FOCUS[slug] ?? { post_type: 'concept' };\n    reactiveItems.push({\n      json: {\n        hotspot,\n        persona_slug: slug,\n        post_type: focus.post_type,\n        confusion_topics: confusionTopics,\n        top_topics: topTopics,\n      }\n    });\n  }\n}\n\nreturn reactiveItems;"
+      },
+      "id": "build-reactive-items",
+      "name": "Build reactive items",
+      "type": "n8n-nodes-base.code",
+      "position": [700, 400],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/personas",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "slug",   "value": "=eq.{{ $json.persona_slug }}" },
+            { "name": "select", "value": "id,slug,name,system_prompt" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" }
+          ]
+        }
+      },
+      "id": "fetch-persona",
+      "name": "Fetch persona",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [920, 400],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const prevJson = $('Build reactive items').first().json;\nconst personaRaw = $input.first().json;\nconst persona = Array.isArray(personaRaw) ? personaRaw[0] : personaRaw;\n\nif (!persona || !persona.id) return [];\n\nconst hotspot = prevJson.hotspot;\nconst wrongAnswers = (hotspot.wrong_answers ?? []).slice(0, 3);\nconst wrongAnswerText = wrongAnswers.length > 0\n  ? `Common wrong answers: ${wrongAnswers.map(a => JSON.stringify(a)).join(', ')}`\n  : '';\n\nconst confusionText = (prevJson.confusion_topics ?? []).length > 0\n  ? `Topics students are confused about this week: ${prevJson.confusion_topics.join(', ')}.`\n  : '';\n\n// Persona cross-reference roster\nconst PERSONA_ROSTER = [\n  { name: 'Lecture Bestie',  slug: 'lecture-bestie',  specialty: 'plain English explanations' },\n  { name: 'Exam Gremlin',    slug: 'exam-gremlin',    specialty: 'exam traps and misconceptions' },\n  { name: 'Problem Grinder', slug: 'problem-grinder', specialty: 'step-by-step worked examples' },\n  { name: 'Doodle Prof',     slug: 'doodle-prof',     specialty: 'visual explanations' },\n  { name: 'Meme Lord',       slug: 'meme-lord',       specialty: 'meme-format explanations' },\n  { name: 'Study Bard',      slug: 'study-bard',      specialty: 'songs and memory hooks' },\n];\nconst otherPersonas = PERSONA_ROSTER.filter(p => p.slug !== prev.persona_slug);\nconst rosterText = otherPersonas.map(p => `- @${p.name}: ${p.specialty}`).join('\\n');\n\nconst systemPrompt = persona.system_prompt + `\n\nYou are creating a REACTIVE post — your followers have been struggling with a specific concept and you're addressing it directly, like a creator responding to their fanbase.\n\nStart your post in a way that acknowledges the struggle without being condescending:\n- \"okay so half of you keep falling for this...\"\n- \"i've been seeing this question blow up in my DMs...\"\n- \"can we talk about why everyone keeps getting this wrong?\"\n- \"alright, this one's for everyone who got tripped up...\"\n\nThen deliver your best explanation in YOUR signature style.\n\nYour fellow study personas (you may @mention them if it naturally helps the student):\n${rosterText}\n\nIMPORTANT: Do NOT output JSON for the body. Just write the post content directly — but DO return valid JSON with fields \"title\" and \"body\".`;\n\nconst userPrompt = `Your followers are struggling with this quiz question from the material \"${hotspot.material_title}\":\n\nQuestion: ${hotspot.question}\nFailure rate: ${hotspot.failure_rate}% of students got this wrong (out of ${hotspot.total_attempts} attempts).\n${wrongAnswerText}\n${confusionText}\n\nCreate a reactive post in YOUR voice that directly addresses this misconception. Make it feel like you noticed your audience struggling and you're stepping in. Return ONLY valid JSON with fields \"title\" and \"body\".`;\n\nreturn [{\n  json: {\n    persona_id: persona.id,\n    persona_slug: persona.slug,\n    material_id: hotspot.material_id,\n    post_type: prevJson.post_type,\n    system_prompt: systemPrompt,\n    user_prompt: userPrompt,\n  }\n}];"
+      },
+      "id": "build-reactive-prompt",
+      "name": "Build reactive prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [1140, 400],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.featherless.ai/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'deepseek-ai/DeepSeek-V3.2', messages: [{ role: 'system', content: $json.system_prompt }, { role: 'user', content: $json.user_prompt }], max_tokens: 512, temperature: 0.75 } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.FEATHERLESS_API_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        }
+      },
+      "id": "call-featherless",
+      "name": "Call Featherless",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1360, 400],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const llmResponse = $input.first().json;\nconst prev = $('Build reactive prompt').first().json;\n\nconst rawContent = llmResponse.choices?.[0]?.message?.content?.trim() ?? '';\n\nlet title = 'By popular demand...';\nlet body = rawContent;\n\n// Attempt to parse JSON response\ntry {\n  const cleaned = rawContent.replace(/^```json?\\s*/i, '').replace(/```\\s*$/i, '').trim();\n  const parsed = JSON.parse(cleaned);\n  if (parsed.title) title = parsed.title;\n  if (parsed.body) body = parsed.body;\n} catch {\n  // Use raw text as body\n}\n\nif (!body) return [];\n\nreturn [{\n  json: {\n    persona_id:  prev.persona_id,\n    persona_slug: prev.persona_slug,\n    material_id: prev.material_id,\n    post_type:   prev.post_type,\n    title,\n    body,\n  }\n}];"
+      },
+      "id": "parse-reactive-post",
+      "name": "Parse reactive post",
+      "type": "n8n-nodes-base.code",
+      "position": [1580, 400],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SUPABASE_URL }}/rest/v1/posts",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { material_id: $json.material_id, persona_id: $json.persona_id, post_type: $json.post_type, title: $json.title, body: $json.body, media_type: 'text', source: 'reactive', sort_order: -1 } }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "={{ 'Bearer ' + $vars.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        }
+      },
+      "id": "insert-reactive-post",
+      "name": "Insert reactive post",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1800, 400],
+      "typeVersion": 4.2
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[
+        { "node": "Fetch quiz failure hotspots", "type": "main", "index": 0 },
+        { "node": "Fetch engagement summary",    "type": "main", "index": 0 }
+      ]]
+    },
+    "Fetch quiz failure hotspots": {
+      "main": [[{ "node": "Build reactive items", "type": "main", "index": 0 }]]
+    },
+    "Fetch engagement summary": {
+      "main": [[{ "node": "Build reactive items", "type": "main", "index": 0 }]]
+    },
+    "Build reactive items": {
+      "main": [[{ "node": "Fetch persona", "type": "main", "index": 0 }]]
+    },
+    "Fetch persona": {
+      "main": [[{ "node": "Build reactive prompt", "type": "main", "index": 0 }]]
+    },
+    "Build reactive prompt": {
+      "main": [[{ "node": "Call Featherless", "type": "main", "index": 0 }]]
+    },
+    "Call Featherless": {
+      "main": [[{ "node": "Parse reactive post", "type": "main", "index": 0 }]]
+    },
+    "Parse reactive post": {
+      "main": [[{ "node": "Insert reactive post", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "notes": "Reactive content loop: runs every 6h, fetches quiz failure hotspots + engagement summary, generates remedial posts from Exam Gremlin and Lecture Bestie in response to student struggles. Posts use source='reactive' and sort_order=-1 (pinned). Env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY, FEATHERLESS_API_KEY. RPCs required: get_quiz_failure_hotspots (engagement-rpc.sql), get_engagement_summary (engagement-rpc.sql)."
+  }
+}

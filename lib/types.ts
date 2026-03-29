@@ -1,10 +1,18 @@
 export type PostType = "concept" | "example" | "trap" | "review" | "recap";
 export type PostSource = "n8n" | "creao";
-export type MediaType = "text" | "image" | "video" | "audio";
+export type MediaType = "text" | "image" | "video" | "audio" | "slideshow";
+
+export interface SlideshowPayload {
+  frames: string[];
+  audio_url: string;
+  frame_duration_ms: number;
+}
 export type SocialPlatform = "youtube" | "tiktok" | "instagram";
 
 export const PERSONA_SLUGS = ["lecture-bestie", "exam-gremlin", "problem-grinder", "doodle-prof", "meme-lord", "study-bard"] as const;
-export type PersonaSlug = typeof PERSONA_SLUGS[number];
+export type DefaultPersonaSlug = typeof PERSONA_SLUGS[number];
+// Accepts both built-in slugs and user-created custom slugs
+export type PersonaSlug = DefaultPersonaSlug | string;
 
 export interface Persona {
   id: string;
@@ -16,6 +24,11 @@ export interface Persona {
   accent_color: string;
   role_tag: string;
   emoji: string;
+  // Custom persona fields (null for default personas)
+  created_by: string | null;
+  is_public: boolean;
+  tone: string | null;
+  teaching_style: string | null;
 }
 
 export interface Material {
@@ -75,7 +88,7 @@ export interface Profile {
   avatar_url: string | null;
   onboarding_completed: boolean;
   interests: string[];
-  enabled_personas: PersonaSlug[];
+  enabled_personas: string[];
   enable_av_output: boolean;
   created_at: string;
 }
@@ -132,6 +145,7 @@ export interface QuizOption {
 export interface Quiz {
   id: string;
   material_id: string;
+  persona_slug: string | null;
   question_type: QuizQuestionType;
   question: string;
   options: QuizOption[] | null;

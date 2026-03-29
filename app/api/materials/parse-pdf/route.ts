@@ -29,18 +29,24 @@ export async function POST(req: NextRequest) {
   // Primary: Gemini vision — handles typed text, handwriting OCR, and image analysis
   if (smart && process.env.GEMINI_API_KEY) {
     try {
-      const { GoogleGenerativeAI } = await import("@google/generative-ai");
-      const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      const model = genai.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const { GoogleGenAI } = await import("@google/genai");
+      const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
       const base64Data = buffer.toString("base64");
 
-      const result = await model.generateContent([
-        { inlineData: { mimeType: "application/pdf", data: base64Data } },
-        VISION_PROMPT,
-      ]);
+      const result = await genai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          {
+            parts: [
+              { inlineData: { mimeType: "application/pdf", data: base64Data } },
+              { text: VISION_PROMPT },
+            ],
+          },
+        ],
+      });
 
-      const text = result.response.text().trim();
+      const text = (result.text ?? "").trim();
       return NextResponse.json({ text, pages: null, method: "vision" });
     } catch (err) {
       console.error("[parse-pdf] Gemini vision failed, falling back to pdf-parse:", err);

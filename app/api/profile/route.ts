@@ -65,12 +65,18 @@ export async function PATCH(req: NextRequest) {
     updates.enable_av_output = body.enable_av_output;
   }
   if (Array.isArray(body.enabled_personas)) {
-    const VALID_SLUGS = ["lecture-bestie", "exam-gremlin", "problem-grinder", "doodle-prof", "meme-lord", "study-bard"];
-    const filtered = (body.enabled_personas as unknown[]).filter(
-      (s): s is string => typeof s === "string" && VALID_SLUGS.includes(s)
+    const slugs = (body.enabled_personas as unknown[]).filter(
+      (s): s is string => typeof s === "string" && s.trim().length > 0
     );
-    // Always keep at least one persona enabled
-    updates.enabled_personas = filtered.length > 0 ? filtered : VALID_SLUGS;
+    if (slugs.length > 0) {
+      // Validate slugs exist in the personas table and are visible to this user
+      const { data: validPersonas } = await supabase
+        .from("personas")
+        .select("slug")
+        .in("slug", slugs);
+      const validSlugs = (validPersonas ?? []).map((p: { slug: string }) => p.slug);
+      updates.enabled_personas = validSlugs.length > 0 ? validSlugs : slugs;
+    }
   }
 
   if (Object.keys(updates).length === 0) {

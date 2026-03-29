@@ -259,7 +259,7 @@ export default function OnboardingFlow({ displayName, completeOnboarding }: Onbo
                     key={slug}
                     variants={cardVariants}
                     transition={{ duration: 0.4, ease: [0.34, 1.56, 0.64, 1] }}
-                    className="rounded-3xl flex items-center gap-4 px-4 py-4 relative overflow-hidden"
+                    className="rounded-3xl flex items-start gap-4 px-4 py-4 relative overflow-hidden"
                     style={{
                       background: `linear-gradient(145deg, ${gradientFrom} 0%, ${gradientTo} 100%)`,
                       border: `1px solid ${borderColor}`,
@@ -275,7 +275,7 @@ export default function OnboardingFlow({ displayName, completeOnboarding }: Onbo
                       </GlowRing>
                     </div>
 
-                    <div className="min-w-0 relative z-10">
+                    <div className="flex-1 min-w-0 relative z-10">
                       <p className="font-display font-bold text-base text-charcoal leading-tight">
                         {name}
                       </p>

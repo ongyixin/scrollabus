@@ -116,10 +116,11 @@ export const POST_TYPE_CONFIG = {
 
 // Media type display config
 export const MEDIA_TYPE_CONFIG = {
-  text:  { label: "Text",  emoji: "📝" },
-  image: { label: "Image", emoji: "🖼️" },
-  video: { label: "Video", emoji: "🎬" },
-  audio: { label: "Song",  emoji: "🎵" },
+  text:      { label: "Text",      emoji: "📝" },
+  image:     { label: "Image",     emoji: "🖼️" },
+  video:     { label: "Video",     emoji: "🎬" },
+  audio:     { label: "Song",      emoji: "🎵" },
+  slideshow: { label: "Slideshow", emoji: "📽️" },
 } as const;
 
 // Quiz display config

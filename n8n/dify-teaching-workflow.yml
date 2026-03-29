@@ -838,7 +838,7 @@ workflow:
 
       # ════════════════════════════════════════════════════════════════════════
       # BRANCH D — scheduled_followup
-      # Goal: generate a personalized Photon iMessage/SMS nudge
+      # Goal: generate a personalized Telegram study nudge
       # ════════════════════════════════════════════════════════════════════════
 
       - data:
@@ -888,7 +888,7 @@ workflow:
           context:
             enabled: false
             variable_selector: []
-          desc: Generates a personalized iMessage/SMS study nudge under 160 chars
+          desc: Generates a personalized Telegram study nudge
           model:
             completion_params:
               temperature: 0.8
@@ -898,8 +898,8 @@ workflow:
           prompt_template:
             - id: sys-d-nudge
               role: system
-              text: "You are Scrollabus, a friendly AI study companion texting a student.\
-                \ Write ONE short iMessage/SMS nudge:\n- Under 160 characters\n- Warm\
+              text: "You are Scrollabus, a friendly AI study companion messaging a student on Telegram.\
+                \ Write ONE short study nudge:\n- Under 200 characters\n- Warm\
                 \ and specific (mention the actual topic)\n- Always end with a reply\
                 \ CTA: reply 'quiz me', 'explain simpler', 'recap', or 'yes'\n- No\
                 \ emojis unless natural\nReturn only the message text, nothing else."
@@ -932,7 +932,7 @@ workflow:
         width: 244
 
       - data:
-          desc: Returns nudge message for Photon iMessage/SMS delivery
+          desc: Returns nudge message for Telegram delivery
           outputs:
             - value_selector:
                 - node-d-nudge

@@ -151,7 +151,9 @@ export function EmptyFeedLanding() {
           ) : trendingPosts.length > 0 ? (
             <div className="flex gap-3 overflow-x-auto pb-2 -mx-5 px-5 scrollbar-none">
               {trendingPosts.map((post) => (
-                <ExploreCard key={post.id} post={post} />
+                <div key={post.id} className="flex-shrink-0 w-[220px]">
+                  <ExploreCard post={post} />
+                </div>
               ))}
             </div>
           ) : (
