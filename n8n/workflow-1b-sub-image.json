@@ -33,19 +33,14 @@
       "parameters": {
         "method": "POST",
         "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "key", "value": "={{ $vars.GEMINI_API_KEY }}" }
-          ]
-        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { contents: [{ parts: [{ text: $json.image_prompt }] }], generationConfig: { responseModalities: ['IMAGE'] } } }}",
+        "jsonBody": "={{ { contents: [{ parts: [{ text: $json.image_prompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } } }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
+            { "name": "Content-Type",    "value": "application/json" },
+            { "name": "x-goog-api-key", "value": "={{ $vars.GEMINI_API_KEY }}" }
           ]
         }
       },

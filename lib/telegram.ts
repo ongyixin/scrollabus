@@ -159,11 +159,11 @@ export type StudyIntent =
 export function classifyStudyIntent(text: string): StudyIntent {
   const lower = text.toLowerCase().trim();
 
-  if (/\bquiz\b/.test(lower) || lower === "go") return "quiz_me";
-  if (/simpler|easier|explain|eli5/.test(lower)) return "explain_simpler";
-  if (/voice|audio|sing|song|bard/.test(lower)) return "voice_note";
-  if (/meme|funny|comic|doodle/.test(lower)) return "make_meme";
-  if (/recap|summary|review|refresh/.test(lower)) return "recap";
+  if (/^\/quiz/.test(lower) || /\bquiz\s*me\b/.test(lower) || lower === "go") return "quiz_me";
+  if (/^\/recap/.test(lower) || /\brecap|summary|review|refresh\b/.test(lower)) return "recap";
+  if (/^\/explain/.test(lower) || /\bsimpler|easier|eli5\b/.test(lower)) return "explain_simpler";
+  if (/\bvoice|audio|sing|song|bard\b/.test(lower)) return "voice_note";
+  if (/\bmeme|funny|comic|doodle\b/.test(lower)) return "make_meme";
   return "general_question";
 }
 

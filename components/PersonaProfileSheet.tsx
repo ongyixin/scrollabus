@@ -30,6 +30,13 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
   const [posts, setPosts] = useState<PersonaWithPosts["posts"]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [view, setView] = useState<SheetView>("profile");
+  // Track navigation direction so slide animations feel like forward/back.
+  const navDirection = useRef<1 | -1>(1); // 1 = forward (→ DM), -1 = back (→ profile)
+
+  function navigateTo(v: SheetView) {
+    navDirection.current = v === "dm" ? 1 : -1;
+    setView(v);
+  }
 
   // Post selection / deletion state
   const [selectMode, setSelectMode] = useState(false);
@@ -96,10 +103,13 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
       .finally(() => setIsLoading(false));
   }, [slug]);
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom on new messages — only while DM view is active.
+  // Using block/inline "nearest" prevents the browser from scrolling any
+  // ancestor (including the snap-locked feed behind the drawer).
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (view !== "dm") return;
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  }, [messages, view]);
 
   const persona = data?.persona;
 
@@ -207,7 +217,7 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -8 }}
                   transition={{ duration: 0.2 }}
-                  onClick={() => setView("profile")}
+                  onClick={() => navigateTo("profile")}
                   className="w-8 h-8 rounded-full bg-warm-100 flex items-center justify-center text-charcoal/60 hover:text-charcoal transition-colors shrink-0"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -237,9 +247,9 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
               {view === "profile" ? (
                 <motion.div
                   key="profile"
-                  initial={{ opacity: 0, x: -24 }}
+                  initial={{ opacity: 0, x: navDirection.current * -24 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -24 }}
+                  exit={{ opacity: 0, x: navDirection.current * -24 }}
                   transition={{ duration: 0.22, ease: "easeInOut" }}
                   className="absolute inset-0 overflow-y-auto"
                 >
@@ -296,7 +306,7 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
 
                           {/* DM button */}
                           <button
-                            onClick={() => setView("dm")}
+                            onClick={() => navigateTo("dm")}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-sans font-semibold text-white transition-opacity active:opacity-70"
                             style={{ backgroundColor: persona.accent_color }}
                           >
@@ -426,9 +436,9 @@ export function PersonaProfileSheet({ slug, onClose }: PersonaProfileSheetProps)
                 /* DM view */
                 <motion.div
                   key="dm"
-                  initial={{ opacity: 0, x: 24 }}
+                  initial={{ opacity: 0, x: navDirection.current * 24 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 24 }}
+                  exit={{ opacity: 0, x: navDirection.current * 24 }}
                   transition={{ duration: 0.22, ease: "easeInOut" }}
                   className="absolute inset-0 flex flex-col"
                 >

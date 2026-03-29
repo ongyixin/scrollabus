@@ -52,17 +52,22 @@ export function CommentSheet({ postId, personaSlug, onClose }: CommentSheetProps
 
       if (res.ok) {
         const json = await res.json();
+        const userCommentId: string = json.comment.id;
         setComments((prev) => [...prev, json.comment]);
         setIsLoadingReply(true);
 
-        // Poll for AI reply (up to 12s)
+        // Poll for AI reply: look for a comment whose parent_comment_id matches
+        // the user's comment id (set by the n8n workflow on insert).
         let attempts = 0;
         const poll = setInterval(async () => {
           attempts++;
           const r = await fetch(`/api/comments?post_id=${postId}`);
           if (r.ok) {
             const j = await r.json();
-            if (j.comments.length > comments.length + 1) {
+            const hasReply = j.comments.some(
+              (c: Comment) => c.parent_comment_id === userCommentId
+            );
+            if (hasReply) {
               setComments(j.comments);
               setIsLoadingReply(false);
               clearInterval(poll);

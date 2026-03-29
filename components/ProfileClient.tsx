@@ -214,11 +214,12 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
     setPersonaToggles(next);
     setPersonaSaving(true);
     try {
-      await fetch("/api/profile", {
+      const res = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled_personas: next }),
       });
+      if (!res.ok) throw new Error("Failed to save");
       setProfile((p) => ({ ...p, enabled_personas: next }));
     } catch {
       setPersonaToggles(personaToggles); // revert
@@ -1295,13 +1296,14 @@ export function ProfileClient({ profile: initialProfile, stats, materials: initi
               prev.map((p) => (p.slug === persona.slug ? persona : p))
             );
           } else {
+            const newToggles = [...personaToggles, persona.slug];
             setAllPersonas((prev) => [...prev, persona]);
-            setPersonaToggles((prev) => [...prev, persona.slug]);
+            setPersonaToggles(newToggles);
             // Persist the newly enabled custom persona
             fetch("/api/profile", {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ enabled_personas: [...personaToggles, persona.slug] }),
+              body: JSON.stringify({ enabled_personas: newToggles }),
             }).catch(() => {});
           }
         }}

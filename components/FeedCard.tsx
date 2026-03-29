@@ -597,12 +597,12 @@ function TextContent({
 
   if (isShortQuote) {
     return (
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 flex flex-col items-center justify-center">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 flex flex-col items-center">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
-          className="relative rounded-4xl p-7 w-full"
+          className="relative rounded-4xl p-7 w-full my-auto"
           style={{
             maxWidth: "min(100%, 580px)",
             background: `linear-gradient(145deg, rgba(255,255,255,0.92), ${accentColor}22)`,
@@ -635,12 +635,12 @@ function TextContent({
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 flex flex-col items-center justify-center">
+    <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 flex flex-col items-center">
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
-        className="relative rounded-3xl p-6 w-full"
+        className="relative rounded-3xl p-6 w-full my-auto"
         style={isTrap ? {
           maxWidth: "min(100%, 580px)",
           background: "linear-gradient(145deg, rgba(255,255,255,0.95), rgba(255,220,216,0.4))",

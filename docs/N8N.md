@@ -391,6 +391,7 @@ flowchart TD
 | Variable | Used by | Notes |
 |---|---|---|
 | `FEATHERLESS_API_KEY` | W1a, W2, W7, W8 | Bearer token in Authorization header |
+| `GEMINI_API_KEY` | W1b, W1c, W1d, W1e | Query param `key` on all Gemini API calls; same value as `GEMINI_API_KEY` in `.env.local` |
 | `SUPABASE_URL` | All HTTP Request nodes that call Supabase | Same value as `NEXT_PUBLIC_SUPABASE_URL` |
 | `SUPABASE_SERVICE_KEY` | All HTTP Request nodes that call Supabase | Used as both `apikey` header and `Authorization: Bearer` |
 | `GOOGLE_SHEET_ID` | W3, W4 | Google Sheets document ID (from URL) |

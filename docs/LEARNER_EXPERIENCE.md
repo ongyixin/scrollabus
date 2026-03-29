@@ -4,6 +4,38 @@ Scrollabus is not a static content delivery tool. Every interaction a student ha
 
 ---
 
+## One Upload. A Compounding Learning Loop.
+
+```mermaid
+flowchart TD
+    Upload["🎓 Student uploads material"]
+
+    subgraph Immediate["Immediate outputs"]
+        Posts["📱 Posts generated\n(text · image · audio · slideshow)"]
+        Quizzes["📝 Quizzes generated\n(persona-voiced · auto-graded)"]
+        Memory["🧠 Memory written\n(HydraDB — topics · history)"]
+        Plan["🗺️ Teaching plan created\n(Dify — emphasis · personas)"]
+    end
+
+    subgraph Downstream["Downstream learning mechanisms"]
+        Feed["🔁 Adaptive feed\n(reranked toward resonant teaching styles)"]
+        Remediation["🛠️ Remediation\n(quiz failures → new posts)"]
+        Nudges["📲 Proactive nudges\n(Telegram study companion)"]
+    end
+
+    Better["✨ Next session is better"]
+
+    Upload --> Posts & Quizzes & Memory & Plan
+    Posts --> Feed
+    Memory --> Feed & Nudges
+    Plan --> Posts
+    Quizzes --> Remediation
+    Feed & Remediation & Nudges --> Better
+    Better -->|"studying compounds"| Upload
+```
+
+---
+
 ## The Core Loop
 
 A student's experience in Scrollabus runs through six stages that repeat and compound over time:
